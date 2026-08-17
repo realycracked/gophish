@@ -1,0 +1,64 @@
+name: Build Android ARM64
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Télécharger le code
+        uses: actions/checkout@v4
+
+      - name: Installer Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Installer Android NDK
+        run: |
+          SDK="$HOME/android-sdk"
+          mkdir -p "$SDK/cmdline-tools"
+
+          cd /tmp
+
+          wget -q https://dl.google.com/android/repository/commandlinetools-linux-13114758_latest.zip
+
+          unzip -q commandlinetools-linux-13114758_latest.zip
+
+          mv cmdline-tools "$SDK/cmdline-tools/latest"
+
+          yes | "$SDK/cmdline-tools/latest/bin/sdkmanager" --licenses || true
+
+          "$SDK/cmdline-tools/latest/bin/sdkmanager" \
+            "platform-tools" \
+            "ndk;27.2.12479018"
+
+      - name: Compiler Gophish
+        run: |
+          NDK="$HOME/android-sdk/ndk/27.2.12479018"
+
+          export CGO_ENABLED=1
+          export GOOS=android
+          export GOARCH=arm64
+
+          export PATH="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+
+          export CC="$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android21-clang"
+
+          go mod download
+
+          go build -o gophish-android-arm64 .
+
+      - name: Créer le ZIP
+        run: |
+          zip gophish-android-arm64.zip \
+            gophish-android-arm64 \
+            config.json
+
+      - name: Sauvegarder le résultat
+        uses: actions/upload-artifact@v4
+        with:
+          name: gophish-android-arm64
+          path: gophish-android-arm64.zip
