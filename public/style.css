@@ -12,7 +12,7 @@
   --cyan: #38e8ff;
   --pink: #ff5cc8;
   --red: #ff4d6d;
-  --neon: 0 0 26px rgba(124, 92, 255, 0.5);
+  --neon: 0 16px 36px -22px rgba(124, 92, 255, 0.38);
   --radius: 16px;
   --font-head: "Space Grotesk", system-ui, sans-serif;
   --font-ui: "Inter", system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
@@ -38,10 +38,10 @@ body {
   height: 85vh;
   z-index: -1;
   background:
-    radial-gradient(55% 48% at 28% 18%, rgba(124, 92, 255, 0.34), transparent 60%),
-    radial-gradient(48% 44% at 76% 8%, rgba(56, 232, 255, 0.24), transparent 60%),
-    radial-gradient(42% 40% at 55% 42%, rgba(255, 92, 200, 0.16), transparent 60%);
-  filter: blur(34px);
+    radial-gradient(55% 48% at 28% 18%, rgba(124, 92, 255, 0.17), transparent 62%),
+    radial-gradient(48% 44% at 76% 8%, rgba(56, 232, 255, 0.11), transparent 62%),
+    radial-gradient(42% 40% at 55% 42%, rgba(255, 92, 200, 0.08), transparent 62%);
+  filter: blur(40px);
   animation: drift 20s ease-in-out infinite alternate;
 }
 @keyframes drift {
@@ -88,7 +88,7 @@ body::before {
 .qbtn svg { color: var(--cyan); }
 .qbtn-accent { color: #fff; background: linear-gradient(135deg, var(--red), #ff7a3d); border-color: transparent; }
 .qbtn-accent svg { color: #fff; }
-.qbtn-accent:hover { box-shadow: 0 0 26px rgba(255, 77, 109, 0.5); }
+.qbtn-accent:hover { box-shadow: 0 14px 30px -20px rgba(255, 77, 109, 0.6); }
 
 /* Zone centrale */
 main { max-width: 820px; margin: 0 auto;
@@ -105,13 +105,9 @@ main { max-width: 820px; margin: 0 auto;
   text-wrap: balance; letter-spacing: -0.018em;
 }
 .grad {
-  background: linear-gradient(100deg, var(--violet), var(--cyan), var(--violet));
-  background-size: 220% auto;
+  background: linear-gradient(100deg, var(--violet), var(--cyan));
   -webkit-background-clip: text; background-clip: text; color: transparent;
-  animation: shine 7s linear infinite;
 }
-@keyframes shine { to { background-position: 220% center; } }
-@media (prefers-reduced-motion: reduce) { .grad { animation: none; } }
 .tag { color: var(--muted); font-size: 1.05rem; margin: 0 0 26px; }
 
 /* Barre de recherche (omnibox), déclinée en grande (xl) et petite (sm) */
@@ -141,7 +137,7 @@ main { max-width: 820px; margin: 0 auto;
 .omni-xl { max-width: 660px; }
 .omni-xl input { font-size: 1.12rem; }
 .omni-xl .go { background: linear-gradient(135deg, var(--red), #ff7a3d); padding: 13px 24px; font-size: 1rem; }
-.omni-xl:focus-within { border-color: color-mix(in srgb, var(--red) 65%, transparent); box-shadow: 0 0 28px rgba(255,77,109,0.42); }
+.omni-xl:focus-within { border-color: color-mix(in srgb, var(--red) 45%, var(--line)); box-shadow: 0 16px 36px -24px rgba(255,77,109,0.5); }
 
 .omni-sm { max-width: 560px; }
 .omni-sm input { font-size: 0.98rem; }
