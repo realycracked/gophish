@@ -1,8 +1,7 @@
-// Interface Vél·Proxy — accueil
+// Accueil Vél·Tube : recherche YouTube (vers le lecteur) + ouverture d'un site via le proxy.
 (function () {
   "use strict";
 
-  // Encodage identique au serveur (src/codec.js).
   function enc(url) {
     var bytes = new TextEncoder().encode(url);
     var bin = "";
@@ -10,85 +9,38 @@
     return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
 
-  function open(url) {
-    window.location.href = "/p/" + enc(url);
-  }
+  function openProxy(url) { window.location.href = "/p/" + enc(url); }
+  function openYouTube(q) { window.location.href = "/youtube?q=" + encodeURIComponent(q); }
 
-  // Décide si l'entrée est une URL ou une recherche.
   function resolveQuery(raw) {
     var q = raw.trim();
     if (!q) return null;
     if (/^https?:\/\//i.test(q)) return q;
-    // "domaine.tld" éventuellement avec chemin, sans espace -> URL
-    if (/^[^\s.]+\.[^\s]{2,}$/.test(q) && !/\s/.test(q)) {
-      return "https://" + q;
-    }
+    if (/^[^\s.]+\.[^\s]{2,}$/.test(q) && !/\s/.test(q)) return "https://" + q;
     return "https://duckduckgo.com/?q=" + encodeURIComponent(q);
   }
 
-  var form = document.getElementById("omni");
-  var input = document.getElementById("omni-input");
-  form.addEventListener("submit", function (e) {
+  // Recherche YouTube
+  var yt = document.getElementById("yt");
+  var ytInput = document.getElementById("yt-input");
+  yt.addEventListener("submit", function (e) {
     e.preventDefault();
-    var url = resolveQuery(input.value);
-    if (url) open(url);
+    var q = ytInput.value.trim();
+    if (q) openYouTube(q);
+  });
+  document.querySelectorAll("[data-yt]").forEach(function (el) {
+    el.addEventListener("click", function () { openYouTube(el.getAttribute("data-yt")); });
   });
 
-  // Boutons/chips avec data-go
+  // Proxy : ouvrir un site
+  var omni = document.getElementById("omni");
+  var omniInput = document.getElementById("omni-input");
+  omni.addEventListener("submit", function (e) {
+    e.preventDefault();
+    var url = resolveQuery(omniInput.value);
+    if (url) openProxy(url);
+  });
   document.querySelectorAll("[data-go]").forEach(function (el) {
-    el.addEventListener("click", function () { open(el.getAttribute("data-go")); });
+    el.addEventListener("click", function () { openProxy(el.getAttribute("data-go")); });
   });
-
-  // Catalogue de jeux
-  var TONES = ["#7c5cff", "#38e8ff", "#ff5cc8", "#5cff9e", "#ffb85c"];
-  var grid = document.getElementById("grid");
-  var filter = document.getElementById("filter");
-  var games = [];
-  var active = "Tous";
-
-  function render() {
-    grid.innerHTML = "";
-    var list = active === "Tous" ? games : games.filter(function (g) { return g.cat === active; });
-    list.forEach(function (g, i) {
-      var b = document.createElement("button");
-      b.className = "tile";
-      b.style.setProperty("--tc", TONES[i % TONES.length]);
-      b.innerHTML =
-        '<span class="glow"></span>' +
-        '<span class="nm"></span>' +
-        '<span class="cat"></span>';
-      b.querySelector(".nm").textContent = g.name;
-      b.querySelector(".cat").textContent = g.cat;
-      b.addEventListener("click", function () { open(g.url); });
-      grid.appendChild(b);
-    });
-  }
-
-  function buildFilter() {
-    var cats = ["Tous"];
-    games.forEach(function (g) { if (cats.indexOf(g.cat) === -1) cats.push(g.cat); });
-    filter.innerHTML = "";
-    cats.forEach(function (c) {
-      var b = document.createElement("button");
-      b.className = "fbtn";
-      b.setAttribute("role", "tab");
-      b.setAttribute("aria-selected", String(c === active));
-      b.textContent = c;
-      b.addEventListener("click", function () {
-        active = c;
-        filter.querySelectorAll(".fbtn").forEach(function (x) {
-          x.setAttribute("aria-selected", String(x.textContent === c));
-        });
-        render();
-      });
-      filter.appendChild(b);
-    });
-  }
-
-  fetch("/games.json")
-    .then(function (r) { return r.json(); })
-    .then(function (data) { games = data; buildFilter(); render(); })
-    .catch(function () {
-      grid.innerHTML = '<p class="disclaimer">Impossible de charger la liste des jeux.</p>';
-    });
 })();

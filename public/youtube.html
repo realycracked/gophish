@@ -11,34 +11,58 @@
 <link rel="stylesheet" href="/style.css">
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%230b0b14'/%3E%3Cpath d='M8 9l8 16 8-16' fill='none' stroke='%2338e8ff' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
 <style>
-  .yt-main { max-width: 1040px; margin: 0 auto;
-    padding: 24px max(16px, env(safe-area-inset-right,0px)) 60px max(16px, env(safe-area-inset-left,0px)); }
+  .yt-main { max-width: 1120px; margin: 0 auto;
+    padding: 20px max(16px, env(safe-area-inset-right,0px)) 64px max(16px, env(safe-area-inset-left,0px)); }
+
   .yt-search { display: flex; gap: 10px; background: var(--glass-2); border: 1px solid var(--line);
-    border-radius: 16px; padding: 7px 7px 7px 16px; max-width: 680px; margin: 10px auto 6px;
-    backdrop-filter: blur(14px); align-items: center; }
-  .yt-search:focus-within { border-color: color-mix(in srgb, var(--violet) 70%, transparent); box-shadow: var(--neon); }
+    border-radius: 16px; padding: 7px 7px 7px 16px; max-width: 720px; margin: 8px auto 20px;
+    backdrop-filter: blur(14px); align-items: center; position: sticky; top: calc(env(safe-area-inset-top,0px) + 70px); z-index: 15; }
+  .yt-search:focus-within { border-color: color-mix(in srgb, var(--red) 60%, transparent); box-shadow: 0 0 26px rgba(255,77,109,.4); }
   .yt-search input { flex: 1; min-width: 0; background: transparent; border: 0; outline: none;
     color: var(--fg); font: inherit; font-size: 1.05rem; padding: 10px 0; }
   .yt-search .go { flex: none; font: inherit; font-weight: 600; color: #fff; cursor: pointer;
-    background: linear-gradient(135deg, var(--violet), #3f8bff); border: 0; border-radius: 12px; padding: 11px 20px; }
-  .hint { text-align: center; color: var(--muted); font-size: 0.85rem; margin: 0 0 22px; }
+    background: linear-gradient(135deg, var(--red), #ff7a3d); border: 0; border-radius: 12px; padding: 11px 20px; }
 
-  .player-wrap { max-width: 920px; margin: 0 auto 26px; display: none; }
-  .player { position: relative; aspect-ratio: 16 / 9; width: 100%; border-radius: 16px; overflow: hidden;
-    border: 1px solid var(--line); background: #000; box-shadow: var(--neon); }
-  .player iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
-  .player-title { font-family: var(--font-head); font-weight: 600; margin: 12px 2px 0; font-size: 1.1rem; }
-  .player-meta { color: var(--muted); font-size: 0.85rem; margin: 2px 2px 0; }
-  .player-meta a { color: var(--cyan); }
+  /* Lecteur */
+  .stage { display: none; margin: 0 auto 30px; max-width: 960px; transition: max-width .2s; }
+  .stage.on { display: block; }
+  body.theater .stage { max-width: 1120px; }
+  body.theater .results { opacity: .6; }
+  .player-box { position: relative; aspect-ratio: 16 / 9; width: 100%; border-radius: 18px; overflow: hidden;
+    background: #000; border: 1px solid color-mix(in srgb, var(--red) 25%, var(--line));
+    box-shadow: 0 30px 70px -40px rgba(255,77,109,.6), 0 0 40px -10px rgba(124,92,255,.4); }
+  .player-box #player, .player-box iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }
 
-  .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; margin-top: 8px; }
+  .ctrl { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 12px 2px 0; }
+  .cbtn { display: inline-flex; align-items: center; gap: 7px; font: inherit; font-size: .85rem; font-weight: 600;
+    color: var(--fg); background: var(--glass); border: 1px solid var(--line); cursor: pointer;
+    padding: 9px 14px; border-radius: 11px; transition: border-color .15s, transform .15s, box-shadow .15s; }
+  .cbtn:hover { transform: translateY(-1px); border-color: color-mix(in srgb, var(--violet) 55%, var(--line)); box-shadow: var(--neon); }
+  .cbtn:disabled { opacity: .4; cursor: default; transform: none; box-shadow: none; }
+  .cbtn svg { color: var(--cyan); }
+  .cbtn.primary { color: #fff; background: linear-gradient(135deg, var(--violet), #3f8bff); border-color: transparent; }
+  .cbtn.primary svg { color: #fff; }
+  .ctrl .spacer { margin-left: auto; }
+  .ctrl .pos { color: var(--muted); font-size: .82rem; font-variant-numeric: tabular-nums; }
+
+  .player-title { font-family: var(--font-head); font-weight: 600; margin: 14px 2px 0; font-size: 1.2rem; text-wrap: balance; }
+  .player-meta { color: var(--muted); font-size: 0.88rem; margin: 3px 2px 0; }
+
+  .results { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 16px; margin-top: 10px; transition: opacity .2s; }
   .vid { text-align: left; cursor: pointer; background: var(--glass); border: 1px solid var(--line);
     border-radius: 14px; overflow: hidden; padding: 0; color: var(--fg); font: inherit;
     transition: transform .16s, border-color .16s, box-shadow .16s; }
-  .vid:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--violet) 65%, var(--line)); box-shadow: var(--neon); }
+  .vid:hover { transform: translateY(-3px); border-color: color-mix(in srgb, var(--violet) 60%, var(--line)); box-shadow: var(--neon); }
+  .vid.playing { border-color: var(--red); box-shadow: 0 0 24px -4px rgba(255,77,109,.5); }
   .vid .thumb { position: relative; aspect-ratio: 16 / 9; background: #11121c; overflow: hidden; }
   .vid .thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
-  .vid .dur { position: absolute; right: 7px; bottom: 7px; background: rgba(0,0,0,.8); color: #fff;
+  .vid .thumb::after { content: ""; position: absolute; inset: 0; background: radial-gradient(60% 60% at 50% 50%, transparent 60%, rgba(0,0,0,.25)); opacity: 0; transition: opacity .15s; }
+  .vid:hover .thumb::after { opacity: 1; }
+  .vid .play-ov { position: absolute; inset: 0; display: grid; place-items: center; opacity: 0; transition: opacity .15s; }
+  .vid:hover .play-ov { opacity: 1; }
+  .vid .play-ov span { width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center;
+    background: rgba(255,77,109,.92); box-shadow: 0 8px 24px -6px rgba(255,77,109,.8); }
+  .vid .dur { position: absolute; right: 7px; bottom: 7px; background: rgba(0,0,0,.82); color: #fff;
     font-size: 0.72rem; font-weight: 600; padding: 2px 6px; border-radius: 6px; }
   .vid .info { padding: 11px 12px 14px; }
   .vid .t { font-weight: 600; font-size: 0.92rem; line-height: 1.25; display: -webkit-box;
@@ -46,6 +70,8 @@
   .vid .c { color: var(--muted); font-size: 0.8rem; margin-top: 5px; }
   .status { text-align: center; color: var(--muted); padding: 40px 0; line-height: 1.6; }
   .status button { font: inherit; font-weight: 600; color: var(--cyan); background: none; border: 0; cursor: pointer; text-decoration: underline; }
+
+  @media (max-width: 520px) { .yt-search { position: static; } }
 </style>
 </head>
 <body>
@@ -76,13 +102,22 @@
     <input id="yt-input" type="text" placeholder="Rechercher une vidéo, ou coller un lien YouTube…" aria-label="Recherche YouTube" autofocus>
     <button type="submit" class="go">Chercher</button>
   </form>
-  <p class="hint">La vidéo est lue par le lecteur YouTube officiel : elle arrive directement de Google, donc en pleine vitesse.</p>
 
-  <div class="player-wrap" id="player-wrap">
-    <div class="player"><iframe id="player" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share" allowfullscreen referrerpolicy="strict-origin-when-cross-origin"></iframe></div>
+  <section class="stage" id="stage">
+    <div class="player-box"><div id="player"></div></div>
+    <div class="ctrl">
+      <button class="cbtn" id="prev" title="Précédent"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M18 6v12M16 12L8 6v12z" fill="currentColor"/></svg>Précédent</button>
+      <button class="cbtn primary" id="next" title="Suivant"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M6 6v12M8 12l8-6v12z" fill="currentColor"/></svg>Suivant</button>
+      <span class="pos" id="pos"></span>
+      <span class="spacer"></span>
+      <button class="cbtn" id="theater" title="Mode cinéma"><svg viewBox="0 0 24 24" width="17" height="17"><rect x="3" y="6" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>Cinéma</button>
+      <button class="cbtn" id="full" title="Plein écran"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Plein écran</button>
+      <button class="cbtn" id="copy" title="Copier le lien"><svg viewBox="0 0 24 24" width="17" height="17"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 15V5a2 2 0 0 1 2-2h8" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>Lien</button>
+      <a class="cbtn" id="openyt" target="_blank" rel="noopener" title="Ouvrir sur YouTube"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M14 4h6v6M20 4l-9 9M19 13v6a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1h6" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>YouTube</a>
+    </div>
     <div class="player-title" id="player-title"></div>
     <div class="player-meta" id="player-meta"></div>
-  </div>
+  </section>
 
   <div id="results" class="results" aria-live="polite"></div>
   <div id="status" class="status"></div>
