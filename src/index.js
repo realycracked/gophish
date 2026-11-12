@@ -53,10 +53,44 @@ export default {
       return handleProxy(request, url);
     }
 
+    // Rattrape les navigations qui ont quitté /p/ (ex. YouTube qui va vers
+    // "/results?...") en les renvoyant vers l'URL réelle proxifiée.
+    const rescued = rescueByReferer(request, url);
+    if (rescued) return rescued;
+
     // Tout le reste = fichiers statiques de l'interface.
     return env.ASSETS.fetch(request);
   },
 };
+
+// Si une requête arrive hors /p/ mais vient d'une page proxifiée (Referer en /p/),
+// on résout le chemin demandé contre le vrai site et on redirige vers /p/<...>.
+function rescueByReferer(request, url) {
+  if (request.method !== "GET" && request.method !== "HEAD") return null;
+  const ref = request.headers.get("referer");
+  if (!ref) return null;
+  let base;
+  try {
+    const rp = new URL(ref);
+    if (rp.origin !== url.origin) return null;
+    if (!rp.pathname.startsWith("/p/")) return null;
+    base = decodeUrl(rp.pathname.slice(3));
+  } catch (e) {
+    return null;
+  }
+  let abs;
+  try {
+    abs = new URL(url.pathname + url.search + url.hash, base).href;
+  } catch (e) {
+    return null;
+  }
+  return Response.redirect(url.origin + "/p/" + encodeUrl(abs), 302);
+}
+
+const STATIC_EXT = /\.(?:js|mjs|css|png|jpe?g|gif|webp|avif|svg|ico|bmp|woff2?|ttf|otf|eot|mp3|ogg|wav|json|map)$/i;
+function isStatic(pathname) {
+  return STATIC_EXT.test(pathname);
+}
 
 function blockedTarget(target) {
   if (target.protocol !== "http:" && target.protocol !== "https:") return true;
@@ -77,6 +111,12 @@ async function handleProxy(request, url) {
     target = new URL(decodeUrl(code));
   } catch (e) {
     return errorPage("Adresse illisible", "Le lien est corrompu ou incomplet.", 400, url.origin);
+  }
+
+  // Reporte la query de l'URL proxy sur la cible (ex. formulaire GET réécrit
+  // vers /p/<...> puis ?search_query=... ajouté par le navigateur).
+  if (url.search) {
+    target.search = target.search ? target.search + "&" + url.search.slice(1) : url.search;
   }
 
   if (blockedTarget(target)) {
@@ -105,6 +145,12 @@ async function handleProxy(request, url) {
     redirect: "manual",
     body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
   };
+
+  // Cache au bord du réseau pour les ressources statiques (images, JS, CSS,
+  // polices…) : partagé entre visiteurs, servi instantanément au 2e passage.
+  if (request.method === "GET" && isStatic(target.pathname)) {
+    init.cf = { cacheEverything: true, cacheTtl: 86400 };
+  }
 
   let upstream;
   try {

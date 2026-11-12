@@ -125,8 +125,8 @@ main { max-width: 860px; margin: 0 auto;
 .chips { display: flex; flex-wrap: wrap; gap: 9px; justify-content: center; margin-top: 22px; }
 .chip {
   font: inherit; font-size: 0.85rem; color: var(--muted); cursor: pointer;
-  background: var(--glass); border: 1px solid var(--line);
-  padding: 8px 15px; border-radius: 999px; transition: color .15s, border-color .15s;
+  background: var(--glass); border: 1px solid var(--line); text-decoration: none;
+  display: inline-block; padding: 8px 15px; border-radius: 999px; transition: color .15s, border-color .15s;
 }
 .chip:hover { color: var(--fg); border-color: color-mix(in srgb, var(--cyan) 55%, var(--line)); }
 
