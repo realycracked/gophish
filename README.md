@@ -1,72 +1,65 @@
-# Vél·Proxy
+# Vél·Tube
 
-Passerelle web rapide avec une interface **Nébula** (sombre, néon). Colle une
-adresse ou lance une recherche pour ouvrir n'importe quel site à travers le
-proxy, avec un accès direct à YouTube et un catalogue de jeux.
+Passerelle web rapide, centrée sur YouTube, avec une interface sombre et lisible.
+Cherche une vidéo (lecteur officiel, lecture directe depuis Google), ou ouvre
+n'importe quel site via le proxy.
 
 Tourne **100 % gratuit et 24 h/24** sur **Cloudflare Workers** (pas d'auto-hébergement,
-pas de serveur à garder allumé, pas de mise en veille).
+pas de mise en veille).
 
-## Comment ça marche
+## Fonctionnalités
 
-- **Interface statique** (`public/`) servie par le réseau edge de Cloudflare.
-- **Worker** (`src/index.js`) : reçoit `/p/<code>`, va chercher la page cible,
-  retire les en-têtes qui bloquent l'affichage (CSP, X-Frame-Options…), réécrit
-  les URLs **en streaming** avec `HTMLRewriter` (très rapide) et renvoie le flux.
-- **Client injecté** (`src/client.js`) : dans chaque page proxifiée, réécrit à la
-  volée les requêtes créées par le JavaScript du site (`fetch`, `XHR`, nouveaux
-  éléments, `window.open`) pour qu'elles repassent par le proxy.
+- **Lecteur YouTube** (`/youtube`) : recherche (via Piped, avec repli direct sur
+  YouTube) et lecture par le **lecteur officiel intégré** — la vidéo arrive direct
+  de Google, sans passer par le proxy. File de lecture, précédent/suivant, lecture
+  auto, mode cinéma, plein écran, **mode musique** (le lecteur se réduit en bas),
+  **historique + reprise** là où on s'était arrêté (stocké sur l'appareil).
+- **Proxy** : ouvre n'importe quel site. Réécriture des URLs en streaming, cache
+  des ressources statiques au bord du réseau, et **barre de navigation** flottante
+  injectée sur les pages ouvertes (retour / suivant / recharger / accueil / adresse
+  / ouvrir l'original).
+
+## Architecture
+
+| Fichier | Rôle |
+|---|---|
+| `src/index.js` | Worker : routeur + moteur proxy (fetch, suppression des en-têtes bloquants, réécriture `HTMLRewriter`, cache, rattrapage des navigations). |
+| `src/codec.js` | Encodage URL-safe réversible, partagé serveur/client. |
+| `public/vel-client.js` | Script injecté dans les pages proxifiées (réécriture des requêtes JS + barre de navigation). Servi tel quel, non bundlé. |
+| `public/index.html`, `app.js` | Accueil (recherche YouTube + proxy). |
+| `public/youtube.html`, `youtube.js` | Lecteur YouTube. |
+| `public/style.css` | Thème sombre commun. |
 
 ## Déploiement (une seule fois, ~5 min)
 
-Il te faut un compte **Cloudflare gratuit** (https://dash.cloudflare.com/sign-up)
-et **Node.js** installé.
+Compte **Cloudflare gratuit** (https://dash.cloudflare.com/sign-up) et **Node.js** requis.
 
 ```bash
-# 1. installer les dépendances
 npm install
-
-# 2. se connecter à Cloudflare (ouvre le navigateur)
-npx wrangler login
-
-# 3. déployer
-npm run deploy
+npx wrangler login     # ouvre le navigateur
+npm run deploy         # affiche ton URL : https://vel-proxy.<compte>.workers.dev
 ```
 
-Wrangler affiche l'URL finale, du type `https://vel-proxy.<ton-compte>.workers.dev`.
-C'est l'adresse de ton proxy. Pour mettre à jour, relance `npm run deploy`.
-
-### Changer le nom
-
-Le nom du Worker (et donc le début de l'URL) se change dans `wrangler.toml`,
-champ `name`. Le nom affiché dans l'interface est dans `public/index.html`.
+Pour mettre à jour : `git pull` puis `npm run deploy`. Le nom (et le début de l'URL)
+se change dans `wrangler.toml` (`name`).
 
 ## Développement local
 
 ```bash
-npm run dev     # serveur local sur http://127.0.0.1:8787
+npm run dev     # http://127.0.0.1:8787
 npm test        # tests unitaires (encodage + réécriture)
 ```
 
-## Le catalogue de jeux
+## Limites connues
 
-Modifie `public/games.json` (`name`, `cat`, `url`). Chaque jeu s'ouvre à travers
-le proxy.
-
-## Limites connues (honnêtes)
-
-- **YouTube** : fonctionne pour la navigation et beaucoup de vidéos, mais Google
-  bloque parfois les adresses IP de centres de données (« confirmez que vous
-  n'êtes pas un robot ») et l'offre gratuite de Cloudflare limite le streaming
-  vidéo très intensif. Correct, sans garantie de fiabilité dans le temps.
-- **Jeux** : les titres simples (2048, Cookie Clicker, échecs…) marchent le mieux.
-  Les jeux **WebGL** ou **multijoueur** (Krunker, Agar, Diep, Skribbl…) utilisent
-  souvent des WebSockets non proxifiés en v1 et peuvent être instables.
-- **Sites très « SPA »** (applications JavaScript lourdes) : la plupart des cas
-  courants sont gérés, mais certains chemins dynamiques exotiques peuvent casser.
-- Les requêtes **WebSocket** ne sont pas encore proxifiées (prévu pour une v2).
+- **YouTube** : la recherche dépend d'instances Piped (parfois instables) avec repli
+  direct sur YouTube ; la lecture passe par le lecteur officiel (donc avec les pubs
+  YouTube habituelles). Le **mode musique** garde le son tant que la page reste ouverte ;
+  sur mobile, écran éteint, le navigateur peut mettre en pause (limite des lecteurs embarqués).
+- **Proxy** : les sites très lourds ou en WebSocket peuvent être lents ou instables.
+  Les WebSockets ne sont pas proxifiés.
 
 ## Sécurité
 
 Le Worker refuse les adresses locales/internes (localhost, IP privées, métadonnées
-cloud) pour éviter d'en faire un relais vers des ressources internes.
+cloud) pour éviter d'en faire un relais interne.

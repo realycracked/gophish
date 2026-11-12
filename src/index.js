@@ -5,9 +5,6 @@
 // - /__vel/client.js : le script injecté dans les pages proxifiées.
 
 import { encodeUrl, decodeUrl } from "./codec.js";
-import { clientSource } from "./client.js";
-
-const CLIENT_JS = clientSource();
 
 // En-têtes de réponse à supprimer : ils empêchent l'affichage dans notre contexte.
 const STRIP_RESPONSE_HEADERS = [
@@ -36,13 +33,9 @@ export default {
     const url = new URL(request.url);
     const path = url.pathname;
 
-    if (path === "/__vel/client.js") {
-      return new Response(CLIENT_JS, {
-        headers: {
-          "content-type": "application/javascript; charset=utf-8",
-          "cache-control": "public, max-age=3600",
-        },
-      });
+    // Script client : fichier statique servi tel quel (avant le rattrapage Referer).
+    if (path === "/vel-client.js") {
+      return env.ASSETS.fetch(request);
     }
 
     if (path === "/p" || path === "/p/") {
@@ -300,7 +293,7 @@ function rewriteHtml(upstream, target, origin) {
     .on("head", {
       element(el) {
         const cfg = '<script>window.__VEL={base:' + JSON.stringify(target.href) + "};<\/script>";
-        el.prepend(cfg + '<script src="/__vel/client.js"><\/script>', { html: true });
+        el.prepend(cfg + '<script src="/vel-client.js"><\/script>', { html: true });
       },
     });
 
