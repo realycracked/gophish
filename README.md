@@ -1,66 +1,72 @@
-![gophish logo](https://raw.github.com/gophish/gophish/master/static/images/gophish_purple.png)
+# Vél·Proxy
 
-Gophish
-=======
+Passerelle web rapide avec une interface **Nébula** (sombre, néon). Colle une
+adresse ou lance une recherche pour ouvrir n'importe quel site à travers le
+proxy, avec un accès direct à YouTube et un catalogue de jeux.
 
-![Build Status](https://github.com/gophish/gophish/workflows/CI/badge.svg) [![GoDoc](https://godoc.org/github.com/gophish/gophish?status.svg)](https://godoc.org/github.com/gophish/gophish)
+Tourne **100 % gratuit et 24 h/24** sur **Cloudflare Workers** (pas d'auto-hébergement,
+pas de serveur à garder allumé, pas de mise en veille).
 
-Gophish: Open-Source Phishing Toolkit
+## Comment ça marche
 
-[Gophish](https://getgophish.com) is an open-source phishing toolkit designed for businesses and penetration testers. It provides the ability to quickly and easily setup and execute phishing engagements and security awareness training.
+- **Interface statique** (`public/`) servie par le réseau edge de Cloudflare.
+- **Worker** (`src/index.js`) : reçoit `/p/<code>`, va chercher la page cible,
+  retire les en-têtes qui bloquent l'affichage (CSP, X-Frame-Options…), réécrit
+  les URLs **en streaming** avec `HTMLRewriter` (très rapide) et renvoie le flux.
+- **Client injecté** (`src/client.js`) : dans chaque page proxifiée, réécrit à la
+  volée les requêtes créées par le JavaScript du site (`fetch`, `XHR`, nouveaux
+  éléments, `window.open`) pour qu'elles repassent par le proxy.
 
-### Install
+## Déploiement (une seule fois, ~5 min)
 
-Installation of Gophish is dead-simple - just download and extract the zip containing the [release for your system](https://github.com/gophish/gophish/releases/), and run the binary. Gophish has binary releases for Windows, Mac, and Linux platforms.
+Il te faut un compte **Cloudflare gratuit** (https://dash.cloudflare.com/sign-up)
+et **Node.js** installé.
 
-### Building From Source
-**If you are building from source, please note that Gophish requires Go v1.10 or above!**
+```bash
+# 1. installer les dépendances
+npm install
 
-To build Gophish from source, simply run ```git clone https://github.com/gophish/gophish.git``` and ```cd``` into the project source directory. Then, run ```go build```. After this, you should have a binary called ```gophish``` in the current directory.
+# 2. se connecter à Cloudflare (ouvre le navigateur)
+npx wrangler login
 
-### Docker
-You can also use Gophish via the official Docker container [here](https://hub.docker.com/r/gophish/gophish/).
-
-### Setup
-After running the Gophish binary, open an Internet browser to https://localhost:3333 and login with the default username and password listed in the log output.
-e.g.
+# 3. déployer
+npm run deploy
 ```
-time="2020-07-29T01:24:08Z" level=info msg="Please login with the username admin and the password 4304d5255378177d"
+
+Wrangler affiche l'URL finale, du type `https://vel-proxy.<ton-compte>.workers.dev`.
+C'est l'adresse de ton proxy. Pour mettre à jour, relance `npm run deploy`.
+
+### Changer le nom
+
+Le nom du Worker (et donc le début de l'URL) se change dans `wrangler.toml`,
+champ `name`. Le nom affiché dans l'interface est dans `public/index.html`.
+
+## Développement local
+
+```bash
+npm run dev     # serveur local sur http://127.0.0.1:8787
+npm test        # tests unitaires (encodage + réécriture)
 ```
 
-Releases of Gophish prior to v0.10.1 have a default username of `admin` and password of `gophish`.
+## Le catalogue de jeux
 
-### Documentation
+Modifie `public/games.json` (`name`, `cat`, `url`). Chaque jeu s'ouvre à travers
+le proxy.
 
-Documentation can be found on our [site](http://getgophish.com/documentation). Find something missing? Let us know by filing an issue!
+## Limites connues (honnêtes)
 
-### Issues
+- **YouTube** : fonctionne pour la navigation et beaucoup de vidéos, mais Google
+  bloque parfois les adresses IP de centres de données (« confirmez que vous
+  n'êtes pas un robot ») et l'offre gratuite de Cloudflare limite le streaming
+  vidéo très intensif. Correct, sans garantie de fiabilité dans le temps.
+- **Jeux** : les titres simples (2048, Cookie Clicker, échecs…) marchent le mieux.
+  Les jeux **WebGL** ou **multijoueur** (Krunker, Agar, Diep, Skribbl…) utilisent
+  souvent des WebSockets non proxifiés en v1 et peuvent être instables.
+- **Sites très « SPA »** (applications JavaScript lourdes) : la plupart des cas
+  courants sont gérés, mais certains chemins dynamiques exotiques peuvent casser.
+- Les requêtes **WebSocket** ne sont pas encore proxifiées (prévu pour une v2).
 
-Find a bug? Want more features? Find something missing in the documentation? Let us know! Please don't hesitate to [file an issue](https://github.com/gophish/gophish/issues/new) and we'll get right on it.
+## Sécurité
 
-### License
-```
-Gophish - Open-Source Phishing Framework
-
-The MIT License (MIT)
-
-Copyright (c) 2013 - 2020 Jordan Wright
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software ("Gophish Community Edition") and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-```
+Le Worker refuse les adresses locales/internes (localhost, IP privées, métadonnées
+cloud) pour éviter d'en faire un relais vers des ressources internes.

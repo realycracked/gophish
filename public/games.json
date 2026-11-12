@@ -1,0 +1,18 @@
+[
+  { "name": "2048", "cat": "Puzzle", "url": "https://play2048.co/" },
+  { "name": "Cookie Clicker", "cat": "Incrémental", "url": "https://orteil.dashnet.org/cookieclicker/" },
+  { "name": "Tetris (Jstris)", "cat": "Arcade", "url": "https://jstris.jezevec10.com/" },
+  { "name": "Hextris", "cat": "Arcade", "url": "https://hextris.io/" },
+  { "name": "Pac-Man", "cat": "Arcade", "url": "https://www.google.com/logos/2010/pacman10-i.html" },
+  { "name": "Lichess (échecs)", "cat": "Réflexion", "url": "https://lichess.org/" },
+  { "name": "Sudoku", "cat": "Réflexion", "url": "https://sudoku.com/" },
+  { "name": "Wordle (FR)", "cat": "Réflexion", "url": "https://wordle.louan.me/" },
+  { "name": "GeoGuessr-like", "cat": "Réflexion", "url": "https://www.geoguessr.com/" },
+  { "name": "Slope", "cat": "Course", "url": "https://slope-game.github.io/" },
+  { "name": "Moto X3M", "cat": "Course", "url": "https://moto-x3m.github.io/" },
+  { "name": "1v1.lol", "cat": "Action", "url": "https://1v1.lol/" },
+  { "name": "Krunker", "cat": "Action", "url": "https://krunker.io/" },
+  { "name": "Agar.io", "cat": "Multijoueur", "url": "https://agar.io/" },
+  { "name": "Diep.io", "cat": "Multijoueur", "url": "https://diep.io/" },
+  { "name": "Skribbl", "cat": "Multijoueur", "url": "https://skribbl.io/" }
+]
