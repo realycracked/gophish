@@ -107,6 +107,26 @@ const REDLIB_INSTANCES = [
   "l.opnxng.com",
   "reddit.nerdvpn.de",
 ];
+function isRedlib(host) { return REDLIB_INSTANCES.includes(host); }
+
+// Thème Vél·Tube (Indigo) injecté dans les pages Redlib pour un rendu plus soigné.
+// Redlib gère son apparence via des variables CSS → on les surcharge (!important).
+const REDLIB_STYLE =
+  '<style id="vt-redlib">' +
+  ':root,body{' +
+  '--background:#0d0e1a!important;--outside:#131527!important;--foreground:#171a2e!important;' +
+  '--post:#171a2e!important;--highlighted:#20233c!important;--panel-border:1px solid rgba(255,255,255,.10)!important;' +
+  '--text:#eef0ff!important;--accent:#8b7bff!important;--green:#4fd18b!important;--visited:#9aa0c0!important;' +
+  '--shadow:0 12px 30px -20px rgba(0,0,0,.7)!important;--nsfw:#ff5c8a!important;--admin:#ff5c8a!important;}' +
+  'body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif!important;line-height:1.5!important;}' +
+  '.post,.comment,.panel,.sidebar,.sidebar_label,.search,#search,.post_body,.create,.infobox{border-radius:14px!important;}' +
+  '.post{transition:border-color .15s,transform .15s!important;}' +
+  '.post:hover{border-color:#8b7bff!important;transform:translateY(-1px)!important;}' +
+  'a{text-decoration:none!important;}' +
+  'a:hover{text-decoration:underline!important;}' +
+  'footer,.footer{opacity:.6!important;}' +
+  '</style>';
+
 function redditTargets(target) {
   if (!REDDIT_RE.test(target.hostname)) return [target];
   return REDLIB_INSTANCES.map((host) => {
@@ -326,6 +346,7 @@ function rewriteHtml(upstream, target, origin) {
       element(el) {
         const cfg = '<script>window.__VEL={base:' + JSON.stringify(target.href) + "};<\/script>";
         el.prepend(cfg + '<script src="/vel-client.js"><\/script>', { html: true });
+        if (isRedlib(target.hostname)) el.append(REDLIB_STYLE, { html: true });
       },
     });
 
