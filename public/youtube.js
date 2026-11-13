@@ -203,23 +203,41 @@
         return out;
       });
   }
+  // Résout avec le premier résultat non vide parmi plusieurs requêtes lancées
+  // en même temps ; échoue seulement si toutes échouent ou reviennent vides.
+  function firstNonEmpty(promises) {
+    return new Promise(function (resolve, reject) {
+      var left = promises.length;
+      if (!left) { reject(); return; }
+      promises.forEach(function (p) {
+        p.then(function (items) {
+          if (items && items.length) resolve(items); else if (--left === 0) reject();
+        }, function () { if (--left === 0) reject(); });
+      });
+    });
+  }
+
+  var searchSeq = 0;
   function search(query) {
+    var seq = ++searchSeq;
     setStatus("Recherche…"); hideList(); results.innerHTML = "";
-    var i = 0;
     function giveUp() {
+      if (seq !== searchSeq) return;
       setStatus("Aucune source de recherche ne répond pour le moment. <button id=\"retry\">Réessayer</button>, ou colle directement un lien YouTube.");
       var rb = $("retry"); if (rb) rb.addEventListener("click", function () { search(query); });
     }
-    function fallback() { scrapeYouTube(query).then(function (items) { if (renderResults(items) === 0) giveUp(); else { setStatus(""); showList("Résultats"); } }).catch(giveUp); }
-    function tryNext() {
-      if (i >= INSTANCES.length) { fallback(); return; }
-      var api = INSTANCES[i++] + "/search?q=" + encodeURIComponent(query) + "&filter=videos";
-      proxiedJson(api).then(function (data) {
-        var items = (data && data.items) || [];
-        if (renderResults(items) === 0) tryNext(); else { setStatus(""); showList("Résultats"); }
-      }).catch(function () { tryNext(); });
-    }
-    tryNext();
+    // Tous les serveurs Piped en parallèle : le plus rapide qui répond gagne.
+    var asks = INSTANCES.map(function (inst) {
+      return proxiedJson(inst + "/search?q=" + encodeURIComponent(query) + "&filter=videos")
+        .then(function (data) { return (data && data.items) || []; });
+    });
+    firstNonEmpty(asks)
+      .catch(function () { return scrapeYouTube(query); })
+      .then(function (items) {
+        if (seq !== searchSeq) return; // une recherche plus récente a été lancée
+        if (renderResults(items || []) === 0) giveUp(); else { setStatus(""); showList("Résultats"); }
+      })
+      .catch(giveUp);
   }
 
   // ---------- Contrôles ----------
