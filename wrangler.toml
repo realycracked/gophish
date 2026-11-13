@@ -1,12 +1,5 @@
 name = "gophish"
-main = "src/index.js"
+# Le Worker sert lui-même les pages (embarquées dans src/assets.generated.js,
+# régénéré par `npm run build:single`) : pas de binding "assets" à configurer.
+main = "src/single.js"
 compatibility_date = "2024-11-01"
-
-# Interface statique (public/) servie directement par le réseau edge de Cloudflare.
-# Les chemins qui ne correspondent à aucun fichier passent au Worker (ex. /p/...).
-[assets]
-directory = "./public"
-binding = "ASSETS"
-
-[observability]
-enabled = true
