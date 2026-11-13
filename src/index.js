@@ -97,6 +97,45 @@ function blockedTarget(target) {
   return false;
 }
 
+// Reddit bloque les IP de datacenter : on sert le contenu via Redlib (frontend
+// open-source, fork maintenu de Libreddit), avec plusieurs instances en repli.
+const REDDIT_RE = /(^|\.)reddit\.com$/i;
+const REDLIB_INSTANCES = [
+  "redlib.catsarch.com",
+  "safereddit.com",
+  "redlib.perennialte.ch",
+  "l.opnxng.com",
+  "reddit.nerdvpn.de",
+];
+function redditTargets(target) {
+  if (!REDDIT_RE.test(target.hostname)) return [target];
+  return REDLIB_INSTANCES.map((host) => {
+    const u = new URL(target.href);
+    u.protocol = "https:";
+    u.hostname = host;
+    u.port = "";
+    return u;
+  });
+}
+
+function buildRequestHeaders(request, target) {
+  const headers = new Headers();
+  for (const [k, v] of request.headers) {
+    if (!STRIP_REQUEST_HEADERS.includes(k.toLowerCase())) headers.set(k, v);
+  }
+  headers.set("host", target.host);
+  const ref = request.headers.get("referer");
+  if (ref) {
+    try {
+      const rp = new URL(ref);
+      if (rp.pathname.startsWith("/p/")) headers.set("referer", decodeUrl(rp.pathname.slice(3)));
+      else headers.delete("referer");
+    } catch (e) { headers.delete("referer"); }
+  }
+  headers.set("origin", target.origin);
+  return headers;
+}
+
 async function handleProxy(request, url) {
   const code = url.pathname.slice(3);
   let target;
@@ -116,39 +155,32 @@ async function handleProxy(request, url) {
     return errorPage("Adresse refusée", "Cette destination n'est pas autorisée.", 403, url.origin);
   }
 
-  // Construit la requête vers la cible.
-  const headers = new Headers();
-  for (const [k, v] of request.headers) {
-    if (!STRIP_REQUEST_HEADERS.includes(k.toLowerCase())) headers.set(k, v);
-  }
-  headers.set("host", target.host);
-  // Referer / Origin crédibles pour la cible.
-  const ref = request.headers.get("referer");
-  if (ref) {
+  // Cible(s) : pour Reddit, liste d'instances Redlib à essayer dans l'ordre.
+  const isGet = request.method === "GET" || request.method === "HEAD";
+  const candidates = redditTargets(target);
+
+  let upstream = null;
+  for (let i = 0; i < candidates.length; i++) {
+    const cand = candidates[i];
+    if (blockedTarget(cand)) continue;
+    const init = {
+      method: request.method,
+      headers: buildRequestHeaders(request, cand),
+      redirect: "manual",
+      body: isGet ? undefined : request.body,
+    };
+    // Cache edge pour les ressources statiques (images, JS, CSS, polices…).
+    if (isGet && isStatic(cand.pathname)) init.cf = { cacheEverything: true, cacheTtl: 86400 };
     try {
-      const rp = new URL(ref);
-      if (rp.pathname.startsWith("/p/")) headers.set("referer", decodeUrl(rp.pathname.slice(3)));
-    } catch (e) { headers.delete("referer"); }
+      const r = await fetch(cand.href, init);
+      target = cand; // base pour la réécriture et les redirections
+      if (r.status < 500 || i === candidates.length - 1) { upstream = r; break; }
+      upstream = r; // 5xx : on garde et on tente l'instance suivante
+    } catch (e) {
+      if (!isGet) break; // corps de requête non rejouable
+    }
   }
-  headers.set("origin", target.origin);
-
-  const init = {
-    method: request.method,
-    headers,
-    redirect: "manual",
-    body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
-  };
-
-  // Cache au bord du réseau pour les ressources statiques (images, JS, CSS,
-  // polices…) : partagé entre visiteurs, servi instantanément au 2e passage.
-  if (request.method === "GET" && isStatic(target.pathname)) {
-    init.cf = { cacheEverything: true, cacheTtl: 86400 };
-  }
-
-  let upstream;
-  try {
-    upstream = await fetch(target.href, init);
-  } catch (e) {
+  if (!upstream) {
     return errorPage("Site injoignable", "Impossible de contacter " + target.hostname + ".", 502, url.origin);
   }
 
