@@ -80,7 +80,7 @@
           onStateChange: function (e) {
             if (e.data === YT.PlayerState.ENDED) {
               if (current >= 0 && queue[current]) { delete positions[queue[current].id]; save("vt_pos", positions); }
-              next();
+              next(true);
             }
           }
         }
@@ -126,37 +126,141 @@
     pos.textContent = (i + 1) + " / " + queue.length;
     $("openyt").href = "https://www.youtube.com/watch?v=" + v.id;
     $("prev").disabled = i <= 0;
-    $("next").disabled = i >= queue.length - 1;
+    // "Suivant" reste actif en fin de liste : il enchaîne alors sur des vidéos liées.
+    $("next").disabled = i >= queue.length - 1 && !autoRelated;
     cards.forEach(function (c, k) { c.classList.toggle("playing", k === i); });
+    refreshSaveUI();
     if (!document.body.classList.contains("music")) window.scrollTo({ top: 0, behavior: "smooth" });
   }
-  function next() { if (current < queue.length - 1) playIndex(current + 1); }
+
+  // Suivant : vidéo suivante de la liste, sinon (lecture auto activée) on
+  // récupère les vidéos liées à celle en cours et on les ajoute à la file.
+  var fetchingRelated = false;
+  function next() {
+    if (current < queue.length - 1) { playIndex(current + 1); return; }
+    if (!autoRelated || current < 0 || fetchingRelated) return;
+    fetchingRelated = true;
+    var from = queue[current].id;
+    pipedAny("/streams/" + from, function (d) {
+      return ((d && d.relatedStreams) || []).filter(function (x) { return !x.type || x.type === "stream"; });
+    }).then(function (items) {
+      if (queue.length && queue[current] && queue[current].id !== from) return; // l'utilisateur a changé de vidéo
+      if (renderResults(items, true) > 0) {
+        if (listHead.hidden) showList("À suivre");
+        playIndex(current + 1);
+      }
+    }).catch(function () {}).then(function () { fetchingRelated = false; });
+  }
   function prev() { if (current > 0) playIndex(current - 1); }
   function playSingle(id) { queue = [{ id: id, title: "", author: "" }]; cards = []; results.innerHTML = ""; hideList(); playIndex(0); }
 
-  function renderResults(items) {
-    results.innerHTML = ""; queue = []; cards = [];
+  // Affiche des vidéos. append=true les ajoute à la file existante (sans doublons)
+  // et renvoie le nombre ajouté ; sinon remplace la liste et renvoie sa taille.
+  function renderResults(items, append) {
+    if (!append) { results.innerHTML = ""; queue = []; cards = []; }
+    var seen = {}, added = 0;
+    queue.forEach(function (q) { seen[q.id] = 1; });
     items.forEach(function (it) {
       var id = idFromUrl(it.url || it.videoId || "");
-      if (!id) return;
+      if (!id || seen[id]) return;
+      seen[id] = 1; added++;
       var idx = queue.length;
-      queue.push({ id: id, title: it.title || "", author: it.uploaderName || it.author || "", durText: it.durText });
+      var v = { id: id, title: it.title || "", author: it.uploaderName || it.author || "", durText: it.durText || fmtDur(it.duration) };
+      queue.push(v);
       var card = document.createElement("button");
       card.className = "vid";
       card.innerHTML =
         '<div class="thumb"><img loading="lazy" alt=""><span class="play-ov"><span>' +
         '<svg viewBox="0 0 24 24" width="18" height="18"><path d="M8 6l10 6-10 6z" fill="#fff"/></svg></span></span>' +
-        '<span class="dur"></span></div><div class="info"><div class="t"></div><div class="c"></div></div>';
+        '<span class="dur"></span>' +
+        '<span class="save" role="button" tabindex="0" title="À regarder plus tard" aria-label="À regarder plus tard">' +
+        '<svg viewBox="0 0 24 24" width="16" height="16"><circle cx="12" cy="12" r="8" fill="none" stroke="#fff" stroke-width="2"/><path d="M12 8v4l3 2" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg></span>' +
+        '</div><div class="info"><div class="t"></div><div class="c"></div></div>';
       card.querySelector("img").src = thumb(id);
-      var d = it.durText || fmtDur(it.duration);
       var dur = card.querySelector(".dur");
-      if (d) dur.textContent = d; else dur.remove();
-      card.querySelector(".t").textContent = it.title || "";
-      card.querySelector(".c").textContent = it.uploaderName || it.author || "";
+      if (v.durText) dur.textContent = v.durText; else dur.remove();
+      card.querySelector(".t").textContent = v.title;
+      card.querySelector(".c").textContent = v.author;
+      var sv = card.querySelector(".save");
+      sv.classList.toggle("on", inList(later, id));
+      function onSave(e) {
+        e.stopPropagation(); e.preventDefault();
+        var on = toggleIn("later", v);
+        sv.classList.toggle("on", on);
+        toast(on ? "Ajouté à « Plus tard »" : "Retiré de « Plus tard »");
+        refreshSaveUI();
+      }
+      sv.addEventListener("click", onSave);
+      sv.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") onSave(e); });
       (function (k) { card.addEventListener("click", function () { playIndex(k); }); })(idx);
       results.appendChild(card); cards.push(card);
     });
-    return queue.length;
+    return append ? added : queue.length;
+  }
+
+  // ---------- Favoris & À regarder plus tard ----------
+  var favs = load("vt_fav", []), later = load("vt_later", []);
+  var autoRelated = load("vt_auto", true);
+  function inList(list, id) { return list.some(function (x) { return x.id === id; }); }
+  function toggleIn(which, v) {
+    var list = which === "fav" ? favs : later, key = which === "fav" ? "vt_fav" : "vt_later";
+    var i = list.findIndex(function (x) { return x.id === v.id; });
+    if (i >= 0) list.splice(i, 1);
+    else { list.unshift({ id: v.id, title: v.title, author: v.author, durText: v.durText }); if (list.length > 200) list.length = 200; }
+    save(key, list);
+    return i < 0;
+  }
+  function refreshSaveUI() {
+    var v = current >= 0 ? queue[current] : null;
+    $("fav").classList.toggle("active", !!v && inList(favs, v.id));
+    $("later").classList.toggle("active", !!v && inList(later, v.id));
+    $("auto").classList.toggle("active", autoRelated);
+  }
+  var toastTimer;
+  function toast(msg) {
+    var t = $("toast"); t.textContent = msg; t.hidden = false;
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.hidden = true; }, 1600);
+  }
+  function asItems(list) { return list.map(function (h) { return { videoId: h.id, title: h.title, uploaderName: h.author, durText: h.durText }; }); }
+
+  // ---------- Listes : Tendances / Reprendre / Favoris / Plus tard ----------
+  function markView(name) {
+    document.querySelectorAll("#views button").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-view") === name); });
+  }
+  function showView(name) {
+    markView(name);
+    ++searchSeq; // annule une recherche ou un chargement en cours
+    if (name === "trend") { showTrending(); return; }
+    if (name === "hist") { showHistory(); return; }
+    var isFav = name === "fav", list = isFav ? favs : later;
+    if (!list.length) {
+      results.innerHTML = ""; hideList();
+      setStatus(isFav ? "Aucun favori pour l'instant. Pendant une vidéo, appuie sur « Favori »."
+                      : "Rien à regarder plus tard. Appuie sur l'horloge d'une vidéo pour l'ajouter.");
+      return;
+    }
+    renderResults(asItems(list)); setStatus("");
+    showList(isFav ? "Favoris" : "À regarder plus tard", "Tout effacer", function () {
+      list.length = 0; save(isFav ? "vt_fav" : "vt_later", list); showView(name);
+    });
+  }
+  function showTrending() {
+    var seq = searchSeq;
+    results.innerHTML = ""; hideList(); setStatus("Chargement des tendances…");
+    pipedAny("/trending?region=FR", function (d) { return Array.isArray(d) ? d : []; })
+      .then(function (items) {
+        if (seq !== searchSeq) return;
+        if (renderResults(items) === 0) throw new Error("vide");
+        setStatus(""); showList("Tendances en France");
+      })
+      .catch(function () {
+        if (seq !== searchSeq) return;
+        setStatus("Les tendances ne répondent pas pour le moment. Cherche une vidéo, ou ouvre « Reprendre ».");
+      });
+  }
+  // Interroge toutes les instances Piped en parallèle, garde la 1re réponse non vide.
+  function pipedAny(path, pick) {
+    return firstNonEmpty(INSTANCES.map(function (inst) { return proxiedJson(inst + path).then(pick); }));
   }
 
   function showList(title, actionLabel, actionFn) {
@@ -166,7 +270,7 @@
   }
   function hideList() { listHead.hidden = true; }
   function showHistory() {
-    if (!history.length) { setStatus("Cherche une vidéo, colle un lien, ou reviens ici pour retrouver ton historique."); return; }
+    if (!history.length) { results.innerHTML = ""; hideList(); setStatus("Pas encore d'historique. Les vidéos que tu regardes apparaîtront ici."); return; }
     renderResults(history.map(function (h) { return { videoId: h.id, title: h.title, uploaderName: h.author, durText: h.durText }; }));
     setStatus("");
     showList("Reprendre", "Vider l'historique", function () {
@@ -220,6 +324,7 @@
   var searchSeq = 0;
   function search(query) {
     var seq = ++searchSeq;
+    markView("");
     setStatus("Recherche…"); hideList(); results.innerHTML = "";
     function giveUp() {
       if (seq !== searchSeq) return;
@@ -256,6 +361,25 @@
     else flash(btn, link);
   });
   $("mode").addEventListener("click", function () { setPref(proxyMode ? "direct" : "proxy"); location.reload(); });
+  $("fav").addEventListener("click", function () {
+    if (current < 0) return;
+    var on = toggleIn("fav", queue[current]);
+    refreshSaveUI(); toast(on ? "Ajouté aux favoris" : "Retiré des favoris");
+  });
+  $("later").addEventListener("click", function () {
+    if (current < 0) return;
+    var v = queue[current], on = toggleIn("later", v);
+    refreshSaveUI(); toast(on ? "Ajouté à « Plus tard »" : "Retiré de « Plus tard »");
+    var c = cards[current]; if (c) { var s = c.querySelector(".save"); if (s) s.classList.toggle("on", on); }
+  });
+  $("auto").addEventListener("click", function () {
+    autoRelated = !autoRelated; save("vt_auto", autoRelated);
+    refreshSaveUI(); toast(autoRelated ? "Lecture auto : activée" : "Lecture auto : désactivée");
+    if (current >= 0) $("next").disabled = current >= queue.length - 1 && !autoRelated;
+  });
+  document.querySelectorAll("#views button").forEach(function (b) {
+    b.addEventListener("click", function () { showView(b.getAttribute("data-view")); });
+  });
   function flash(btn, txt) { var old = btn.innerHTML; btn.textContent = txt; setTimeout(function () { btn.innerHTML = old; }, 1400); }
 
   function updateModeUI(auto) {
@@ -284,7 +408,8 @@
     var params = new URLSearchParams(location.search);
     if (params.get("v")) { var id0 = idFromUrl(params.get("v")) || params.get("v"); if (id0) playSingle(id0); }
     else if (params.get("q")) { input.value = params.get("q"); search(params.get("q")); }
-    else showHistory();
+    else showView("trend");
+    refreshSaveUI();
   }
 
   form.addEventListener("submit", function (e) {
