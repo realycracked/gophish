@@ -97,6 +97,70 @@ function blockedTarget(target) {
   return false;
 }
 
+// Reddit bloque les IP de datacenter : on sert le contenu via Redlib (frontend
+// open-source, fork maintenu de Libreddit), avec plusieurs instances en repli.
+const REDDIT_RE = /(^|\.)reddit\.com$/i;
+const REDLIB_INSTANCES = [
+  "redlib.catsarch.com",
+  "safereddit.com",
+  "redlib.perennialte.ch",
+  "l.opnxng.com",
+  "reddit.nerdvpn.de",
+];
+function isRedlib(host) { return REDLIB_INSTANCES.includes(host); }
+
+// Style "ancien Reddit" (old.reddit) injecté dans les pages Redlib : fond
+// gris-bleu clair, panneaux blancs, liens bleus, Verdana compact, bordures
+// carrées. Redlib gère son apparence via des variables CSS → on les surcharge.
+const REDLIB_STYLE =
+  '<style id="vt-redlib">' +
+  ':root,body{' +
+  '--background:#dae0e6!important;--outside:#ffffff!important;--foreground:#ffffff!important;' +
+  '--post:#ffffff!important;--highlighted:#f6f7f8!important;--panel-border:1px solid #cccccc!important;' +
+  '--text:#1a1a1b!important;--accent:#0079d3!important;--green:#46a508!important;--visited:#551a8b!important;' +
+  '--shadow:0 1px 2px rgba(0,0,0,.08)!important;--nsfw:#ff585b!important;--admin:#ff4500!important;}' +
+  'html,body{background:#dae0e6!important;color:#1a1a1b!important;' +
+  'font-family:Verdana,Arial,Helvetica,sans-serif!important;font-size:12px!important;line-height:1.4!important;}' +
+  'a{color:#0079d3!important;text-decoration:none!important;}' +
+  'a:visited{color:#551a8b!important;}a:hover{text-decoration:underline!important;}' +
+  '.post,.comment,.panel,.sidebar,.sidebar_label,.search,#search,.post_body,.create,.infobox,.thread,.commentreply{' +
+  'border-radius:0!important;box-shadow:none!important;border:1px solid #ccc!important;background:#fff!important;}' +
+  '.post:hover{border-color:#898989!important;transform:none!important;}' +
+  '.post_score,.score,.comment_score{color:#878a8c!important;font-weight:700!important;}' +
+  'h1,h2,.post_title,.post_title a{color:#1a1a1b!important;}' +
+  'button,.submit,input[type=submit]{border-radius:2px!important;}' +
+  'footer,.footer{opacity:.6!important;}' +
+  '</style>';
+
+function redditTargets(target) {
+  if (!REDDIT_RE.test(target.hostname)) return [target];
+  return REDLIB_INSTANCES.map((host) => {
+    const u = new URL(target.href);
+    u.protocol = "https:";
+    u.hostname = host;
+    u.port = "";
+    return u;
+  });
+}
+
+function buildRequestHeaders(request, target) {
+  const headers = new Headers();
+  for (const [k, v] of request.headers) {
+    if (!STRIP_REQUEST_HEADERS.includes(k.toLowerCase())) headers.set(k, v);
+  }
+  headers.set("host", target.host);
+  const ref = request.headers.get("referer");
+  if (ref) {
+    try {
+      const rp = new URL(ref);
+      if (rp.pathname.startsWith("/p/")) headers.set("referer", decodeUrl(rp.pathname.slice(3)));
+      else headers.delete("referer");
+    } catch (e) { headers.delete("referer"); }
+  }
+  headers.set("origin", target.origin);
+  return headers;
+}
+
 async function handleProxy(request, url) {
   const code = url.pathname.slice(3);
   let target;
@@ -116,39 +180,32 @@ async function handleProxy(request, url) {
     return errorPage("Adresse refusée", "Cette destination n'est pas autorisée.", 403, url.origin);
   }
 
-  // Construit la requête vers la cible.
-  const headers = new Headers();
-  for (const [k, v] of request.headers) {
-    if (!STRIP_REQUEST_HEADERS.includes(k.toLowerCase())) headers.set(k, v);
-  }
-  headers.set("host", target.host);
-  // Referer / Origin crédibles pour la cible.
-  const ref = request.headers.get("referer");
-  if (ref) {
+  // Cible(s) : pour Reddit, liste d'instances Redlib à essayer dans l'ordre.
+  const isGet = request.method === "GET" || request.method === "HEAD";
+  const candidates = redditTargets(target);
+
+  let upstream = null;
+  for (let i = 0; i < candidates.length; i++) {
+    const cand = candidates[i];
+    if (blockedTarget(cand)) continue;
+    const init = {
+      method: request.method,
+      headers: buildRequestHeaders(request, cand),
+      redirect: "manual",
+      body: isGet ? undefined : request.body,
+    };
+    // Cache edge pour les ressources statiques (images, JS, CSS, polices…).
+    if (isGet && isStatic(cand.pathname)) init.cf = { cacheEverything: true, cacheTtl: 86400 };
     try {
-      const rp = new URL(ref);
-      if (rp.pathname.startsWith("/p/")) headers.set("referer", decodeUrl(rp.pathname.slice(3)));
-    } catch (e) { headers.delete("referer"); }
+      const r = await fetch(cand.href, init);
+      target = cand; // base pour la réécriture et les redirections
+      if (r.status < 500 || i === candidates.length - 1) { upstream = r; break; }
+      upstream = r; // 5xx : on garde et on tente l'instance suivante
+    } catch (e) {
+      if (!isGet) break; // corps de requête non rejouable
+    }
   }
-  headers.set("origin", target.origin);
-
-  const init = {
-    method: request.method,
-    headers,
-    redirect: "manual",
-    body: ["GET", "HEAD"].includes(request.method) ? undefined : request.body,
-  };
-
-  // Cache au bord du réseau pour les ressources statiques (images, JS, CSS,
-  // polices…) : partagé entre visiteurs, servi instantanément au 2e passage.
-  if (request.method === "GET" && isStatic(target.pathname)) {
-    init.cf = { cacheEverything: true, cacheTtl: 86400 };
-  }
-
-  let upstream;
-  try {
-    upstream = await fetch(target.href, init);
-  } catch (e) {
+  if (!upstream) {
     return errorPage("Site injoignable", "Impossible de contacter " + target.hostname + ".", 502, url.origin);
   }
 
@@ -294,6 +351,7 @@ function rewriteHtml(upstream, target, origin) {
       element(el) {
         const cfg = '<script>window.__VEL={base:' + JSON.stringify(target.href) + "};<\/script>";
         el.prepend(cfg + '<script src="/vel-client.js"><\/script>', { html: true });
+        if (isRedlib(target.hostname)) el.append(REDLIB_STYLE, { html: true });
       },
     });
 

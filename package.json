@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
+    "build": "echo \"Pas d'étape de build (site statique + Worker)\"",
     "deploy": "wrangler deploy",
     "test": "node --test \"test/**/*.test.js\""
   },
