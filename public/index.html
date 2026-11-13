@@ -66,12 +66,12 @@
       <input id="omni-input" type="text" inputmode="url" placeholder="site.com ou recherche…" aria-label="Adresse ou recherche">
       <button type="submit" class="go">Ouvrir<span class="kbd">↵</span></button>
     </form>
-    <div class="chips">
-      <button class="chip" data-go="https://www.reddit.com">Reddit</button>
-      <button class="chip" data-go="https://duckduckgo.com">DuckDuckGo</button>
-      <button class="chip" data-go="https://www.wikipedia.org">Wikipédia</button>
-      <button class="chip" data-go="https://lite.duckduckgo.com/lite">Recherche légère</button>
-    </div>
+    <div class="chips" id="sites" aria-label="Tes sites favoris"></div>
+    <form id="site-form" class="site-form" hidden autocomplete="off">
+      <input id="site-name" type="text" maxlength="30" placeholder="Nom (ex. Twitch)" aria-label="Nom du site">
+      <input id="site-url" type="text" inputmode="url" placeholder="Adresse (ex. twitch.tv)" aria-label="Adresse du site">
+      <button type="submit" class="site-add">Ajouter</button>
+    </form>
   </section>
 </main>
 
