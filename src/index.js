@@ -109,21 +109,26 @@ const REDLIB_INSTANCES = [
 ];
 function isRedlib(host) { return REDLIB_INSTANCES.includes(host); }
 
-// Thème Vél·Tube (Indigo) injecté dans les pages Redlib pour un rendu plus soigné.
-// Redlib gère son apparence via des variables CSS → on les surcharge (!important).
+// Style "ancien Reddit" (old.reddit) injecté dans les pages Redlib : fond
+// gris-bleu clair, panneaux blancs, liens bleus, Verdana compact, bordures
+// carrées. Redlib gère son apparence via des variables CSS → on les surcharge.
 const REDLIB_STYLE =
   '<style id="vt-redlib">' +
   ':root,body{' +
-  '--background:#0d0e1a!important;--outside:#131527!important;--foreground:#171a2e!important;' +
-  '--post:#171a2e!important;--highlighted:#20233c!important;--panel-border:1px solid rgba(255,255,255,.10)!important;' +
-  '--text:#eef0ff!important;--accent:#8b7bff!important;--green:#4fd18b!important;--visited:#9aa0c0!important;' +
-  '--shadow:0 12px 30px -20px rgba(0,0,0,.7)!important;--nsfw:#ff5c8a!important;--admin:#ff5c8a!important;}' +
-  'body{font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif!important;line-height:1.5!important;}' +
-  '.post,.comment,.panel,.sidebar,.sidebar_label,.search,#search,.post_body,.create,.infobox{border-radius:14px!important;}' +
-  '.post{transition:border-color .15s,transform .15s!important;}' +
-  '.post:hover{border-color:#8b7bff!important;transform:translateY(-1px)!important;}' +
-  'a{text-decoration:none!important;}' +
-  'a:hover{text-decoration:underline!important;}' +
+  '--background:#dae0e6!important;--outside:#ffffff!important;--foreground:#ffffff!important;' +
+  '--post:#ffffff!important;--highlighted:#f6f7f8!important;--panel-border:1px solid #cccccc!important;' +
+  '--text:#1a1a1b!important;--accent:#0079d3!important;--green:#46a508!important;--visited:#551a8b!important;' +
+  '--shadow:0 1px 2px rgba(0,0,0,.08)!important;--nsfw:#ff585b!important;--admin:#ff4500!important;}' +
+  'html,body{background:#dae0e6!important;color:#1a1a1b!important;' +
+  'font-family:Verdana,Arial,Helvetica,sans-serif!important;font-size:12px!important;line-height:1.4!important;}' +
+  'a{color:#0079d3!important;text-decoration:none!important;}' +
+  'a:visited{color:#551a8b!important;}a:hover{text-decoration:underline!important;}' +
+  '.post,.comment,.panel,.sidebar,.sidebar_label,.search,#search,.post_body,.create,.infobox,.thread,.commentreply{' +
+  'border-radius:0!important;box-shadow:none!important;border:1px solid #ccc!important;background:#fff!important;}' +
+  '.post:hover{border-color:#898989!important;transform:none!important;}' +
+  '.post_score,.score,.comment_score{color:#878a8c!important;font-weight:700!important;}' +
+  'h1,h2,.post_title,.post_title a{color:#1a1a1b!important;}' +
+  'button,.submit,input[type=submit]{border-radius:2px!important;}' +
   'footer,.footer{opacity:.6!important;}' +
   '</style>';
 
