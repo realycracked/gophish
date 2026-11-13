@@ -81,6 +81,10 @@
   .vid .t { font-weight: 600; font-size: 0.92rem; line-height: 1.3; display: -webkit-box;
     -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
   .vid .c { color: var(--muted); font-size: 0.8rem; margin-top: 5px; }
+  .netnote { max-width: 720px; margin: 0 auto 16px; background: var(--surface); border: 1px solid var(--line);
+    border-radius: 12px; padding: 10px 14px; color: var(--muted); font-size: .85rem; display: flex; gap: 10px; align-items: center; }
+  .netnote b { color: var(--fg); font-weight: 600; }
+  .netnote button { margin-left: auto; font: inherit; font-weight: 600; color: var(--accent); background: none; border: 0; cursor: pointer; text-decoration: underline; white-space: nowrap; }
   .status { text-align: center; color: var(--muted); padding: 40px 0; line-height: 1.6; }
   .status button { font: inherit; font-weight: 600; color: var(--fg); background: none; border: 0; cursor: pointer; text-decoration: underline; }
 
@@ -113,6 +117,8 @@
     <button type="submit" class="go">Chercher</button>
   </form>
 
+  <div class="netnote" id="netnote" hidden></div>
+
   <section class="stage" id="stage">
     <div class="player-box"><div id="player"></div></div>
     <div class="ctrl">
@@ -121,6 +127,7 @@
       <span class="pos" id="pos"></span>
       <span class="spacer"></span>
       <button class="cbtn" id="music" title="Mode musique (audio en fond)"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M9 18V6l10-2v12" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="7" cy="18" r="2" fill="currentColor"/><circle cx="17" cy="16" r="2" fill="currentColor"/></svg>Musique</button>
+      <button class="cbtn" id="mode" title="Basculer rapide / compatible"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 12a8 8 0 0 1 8-8M20 12a8 8 0 0 1-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M12 4l2.5 2.5M12 20l-2.5-2.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg><span id="mode-lbl">Rapide</span></button>
       <button class="cbtn c-opt" id="theater" title="Mode cinéma"><svg viewBox="0 0 24 24" width="17" height="17"><rect x="3" y="6" width="18" height="12" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>Cinéma</button>
       <button class="cbtn c-opt" id="full" title="Plein écran"><svg viewBox="0 0 24 24" width="17" height="17"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>Plein écran</button>
       <button class="cbtn c-opt" id="copy" title="Copier le lien"><svg viewBox="0 0 24 24" width="17" height="17"><rect x="9" y="9" width="11" height="11" rx="2" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M5 15V5a2 2 0 0 1 2-2h8" fill="none" stroke="currentColor" stroke-width="1.8"/></svg>Lien</button>

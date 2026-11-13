@@ -1,6 +1,9 @@
-// Vél·Tube — recherche YouTube (Piped + repli), lecteur officiel avec file de
-// lecture, suivant/précédent, lecture auto, cinéma/plein écran, mode musique,
-// historique et reprise là où on s'était arrêté.
+// Vél·Tube — recherche YouTube (Piped + repli), lecteur avec file de lecture,
+// historique + reprise, mode musique, et DEUX modes de lecture :
+//  - "rapide"      : lecteur officiel, vidéo directe depuis Google (rapide).
+//  - "compatible"  : la vidéo passe par le proxy (marche sur les réseaux qui
+//                    bloquent YouTube, mais plus lent).
+// Détection automatique du blocage au chargement.
 (function () {
   "use strict";
 
@@ -24,14 +27,18 @@
   var form = $("yt-form"), input = $("yt-input"), results = $("results"), status = $("status");
   var stage = $("stage"), pTitle = $("player-title"), pMeta = $("player-meta"), pos = $("pos");
   var listHead = $("list-head"), listTitle = $("list-title"), listAction = $("list-action");
+  var netnote = $("netnote"), modeLbl = $("mode-lbl");
 
   var queue = [], current = -1, cards = [];
+  var proxyMode = false;
 
-  // ---------- Stockage local (historique + positions) ----------
+  // ---------- Stockage local ----------
   function load(key, def) { try { return JSON.parse(localStorage.getItem(key)) || def; } catch (e) { return def; } }
   function save(key, val) { try { localStorage.setItem(key, JSON.stringify(val)); } catch (e) {} }
-  var history = load("vt_hist", []);     // [{id,title,author,durText,ts}]
-  var positions = load("vt_pos", {});    // id -> secondes
+  function getPref() { try { return localStorage.getItem("vt_mode") || "auto"; } catch (e) { return "auto"; } }
+  function setPref(v) { try { localStorage.setItem("vt_mode", v); } catch (e) {} }
+  var history = load("vt_hist", []);
+  var positions = load("vt_pos", {});
 
   function remember(v) {
     history = history.filter(function (h) { return h.id !== v.id; });
@@ -40,47 +47,6 @@
     save("vt_hist", history);
   }
 
-  // ---------- Lecteur (IFrame API) ----------
-  var player = null, apiReady = false, pending = null;
-  window.onYouTubeIframeAPIReady = function () {
-    player = new YT.Player("player", {
-      host: "https://www.youtube-nocookie.com",
-      videoId: "",
-      playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
-      events: {
-        onReady: function () { apiReady = true; if (pending) { playNow(pending.id, pending.start); pending = null; } },
-        onStateChange: onState
-      }
-    });
-  };
-  (function () { var s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api"; document.head.appendChild(s); })();
-
-  function playNow(id, start) {
-    player.loadVideoById({ videoId: id, startSeconds: start || 0 });
-  }
-  function loadVideo(id, start) {
-    if (apiReady && player) playNow(id, start);
-    else pending = { id: id, start: start };
-  }
-
-  function onState(e) {
-    if (e.data === YT.PlayerState.ENDED) {
-      if (current >= 0 && queue[current]) delete positions[queue[current].id], save("vt_pos", positions);
-      next();
-    }
-  }
-  // Sauvegarde périodique de la position de lecture
-  setInterval(function () {
-    try {
-      if (current < 0 || !player || !player.getCurrentTime) return;
-      var t = player.getCurrentTime(), d = player.getDuration();
-      if (!d || d <= 0) return;
-      var id = queue[current].id;
-      if (t > 5 && t < d - 20) positions[id] = Math.floor(t); else delete positions[id];
-      save("vt_pos", positions);
-    } catch (e) {}
-  }, 5000);
-
   function fmtDur(s) {
     if (s == null || isNaN(s)) return "";
     s = Math.floor(s);
@@ -88,13 +54,65 @@
     var mm = h ? String(m).padStart(2, "0") : String(m);
     return (h ? h + ":" : "") + mm + ":" + String(sec).padStart(2, "0");
   }
-  function thumb(id) { return "https://i.ytimg.com/vi/" + id + "/mqdefault.jpg"; }
+  function thumb(id) {
+    var u = "https://i.ytimg.com/vi/" + id + "/mqdefault.jpg";
+    return proxyMode ? "/p/" + enc(u) : u;
+  }
   function idFromUrl(u) {
     if (!u) return null;
     var m = u.match(/[?&]v=([A-Za-z0-9_-]{11})/) || u.match(/youtu\.be\/([A-Za-z0-9_-]{11})/) ||
             u.match(/\/(?:embed|shorts|v)\/([A-Za-z0-9_-]{11})/) || u.match(/^([A-Za-z0-9_-]{11})$/);
     return m ? m[1] : null;
   }
+  function currentIframe() { return document.querySelector(".player-box iframe"); }
+
+  // ---------- Lecteur : mode rapide (IFrame API) ----------
+  var player = null, apiLoaded = false, apiReady = false, pending = null;
+  function ensureApi() {
+    if (apiLoaded) return;
+    apiLoaded = true;
+    window.onYouTubeIframeAPIReady = function () {
+      player = new YT.Player("player", {
+        host: "https://www.youtube-nocookie.com", videoId: "",
+        playerVars: { autoplay: 1, rel: 0, modestbranding: 1, playsinline: 1 },
+        events: {
+          onReady: function () { apiReady = true; if (pending) { apiPlay(pending.id, pending.start); pending = null; } },
+          onStateChange: function (e) {
+            if (e.data === YT.PlayerState.ENDED) {
+              if (current >= 0 && queue[current]) { delete positions[queue[current].id]; save("vt_pos", positions); }
+              next();
+            }
+          }
+        }
+      });
+    };
+    var s = document.createElement("script"); s.src = "https://www.youtube.com/iframe_api"; document.head.appendChild(s);
+  }
+  function apiPlay(id, start) { player.loadVideoById({ videoId: id, startSeconds: start || 0 }); }
+
+  // ---------- Lecteur : mode compatible (iframe via proxy) ----------
+  function loadProxyVideo(id, start) {
+    var u = "https://www.youtube-nocookie.com/embed/" + id + "?autoplay=1&rel=0&modestbranding=1&playsinline=1" + (start ? "&start=" + Math.floor(start) : "");
+    $("player").innerHTML = '<iframe src="/p/' + enc(u) + '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="origin"></iframe>';
+  }
+
+  function loadVideo(id, start) {
+    if (proxyMode) { loadProxyVideo(id, start); return; }
+    ensureApi();
+    if (apiReady && player) apiPlay(id, start); else pending = { id: id, start: start };
+  }
+
+  // Sauvegarde périodique de la position (mode rapide uniquement)
+  setInterval(function () {
+    try {
+      if (proxyMode || current < 0 || !player || !player.getCurrentTime) return;
+      var t = player.getCurrentTime(), d = player.getDuration();
+      if (!d || d <= 0) return;
+      var id = queue[current].id;
+      if (t > 5 && t < d - 20) positions[id] = Math.floor(t); else delete positions[id];
+      save("vt_pos", positions);
+    } catch (e) {}
+  }, 5000);
 
   function playIndex(i) {
     if (i < 0 || i >= queue.length) return;
@@ -117,8 +135,7 @@
   function playSingle(id) { queue = [{ id: id, title: "", author: "" }]; cards = []; results.innerHTML = ""; hideList(); playIndex(0); }
 
   function renderResults(items) {
-    results.innerHTML = "";
-    queue = []; cards = [];
+    results.innerHTML = ""; queue = []; cards = [];
     items.forEach(function (it) {
       var id = idFromUrl(it.url || it.videoId || "");
       if (!id) return;
@@ -137,21 +154,17 @@
       card.querySelector(".t").textContent = it.title || "";
       card.querySelector(".c").textContent = it.uploaderName || it.author || "";
       (function (k) { card.addEventListener("click", function () { playIndex(k); }); })(idx);
-      results.appendChild(card);
-      cards.push(card);
+      results.appendChild(card); cards.push(card);
     });
     return queue.length;
   }
 
-  // ---------- Liste (en-tête) ----------
   function showList(title, actionLabel, actionFn) {
     listTitle.textContent = title;
-    if (actionLabel) { listAction.textContent = actionLabel; listAction.onclick = actionFn; listAction.hidden = false; }
-    else listAction.hidden = true;
+    if (actionLabel) { listAction.textContent = actionLabel; listAction.onclick = actionFn; listAction.hidden = false; } else listAction.hidden = true;
     listHead.hidden = false;
   }
   function hideList() { listHead.hidden = true; }
-
   function showHistory() {
     if (!history.length) { setStatus("Cherche une vidéo, colle un lien, ou reviens ici pour retrouver ton historique."); return; }
     renderResults(history.map(function (h) { return { videoId: h.id, title: h.title, uploaderName: h.author, durText: h.durText }; }));
@@ -212,13 +225,10 @@
   // ---------- Contrôles ----------
   $("prev").addEventListener("click", prev);
   $("next").addEventListener("click", next);
-  $("music").addEventListener("click", function () {
-    var on = document.body.classList.toggle("music");
-    this.classList.toggle("active", on);
-  });
+  $("music").addEventListener("click", function () { this.classList.toggle("active", document.body.classList.toggle("music")); });
   $("theater").addEventListener("click", function () { document.body.classList.toggle("theater"); });
   $("full").addEventListener("click", function () {
-    var f = player && player.getIframe && player.getIframe();
+    var f = currentIframe();
     if (f && f.requestFullscreen) f.requestFullscreen().catch(function () {});
   });
   $("copy").addEventListener("click", function () {
@@ -227,9 +237,38 @@
     if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(link).then(function () { flash(btn, "Copié !"); }).catch(function () { flash(btn, link); });
     else flash(btn, link);
   });
+  $("mode").addEventListener("click", function () { setPref(proxyMode ? "direct" : "proxy"); location.reload(); });
   function flash(btn, txt) { var old = btn.innerHTML; btn.textContent = txt; setTimeout(function () { btn.innerHTML = old; }, 1400); }
 
-  // ---------- Entrée ----------
+  function updateModeUI(auto) {
+    modeLbl.textContent = proxyMode ? "Compatible" : "Rapide";
+    if (proxyMode) {
+      netnote.hidden = false;
+      netnote.innerHTML = (auto ? "<b>YouTube semble bloqué sur ce réseau.</b> Lecture via le proxy (plus lent)."
+                                : "<b>Mode compatible.</b> La vidéo passe par le proxy (plus lent).") +
+        " <button id=\"flip\">Repasser en mode rapide</button>";
+      var fb = $("flip"); if (fb) fb.addEventListener("click", function () { setPref("direct"); location.reload(); });
+    } else {
+      netnote.hidden = true;
+    }
+  }
+
+  // ---------- Détection du réseau ----------
+  function probe(cb) {
+    var img = new Image(), done = false;
+    var to = setTimeout(function () { if (!done) { done = true; cb(false); } }, 2500);
+    img.onload = function () { if (!done) { done = true; clearTimeout(to); cb(true); } };
+    img.onerror = function () { if (!done) { done = true; clearTimeout(to); cb(false); } };
+    img.src = "https://i.ytimg.com/vi/aqz-KE-bpKQ/default.jpg?t=" + Date.now();
+  }
+
+  function startup() {
+    var params = new URLSearchParams(location.search);
+    if (params.get("v")) { var id0 = idFromUrl(params.get("v")) || params.get("v"); if (id0) playSingle(id0); }
+    else if (params.get("q")) { input.value = params.get("q"); search(params.get("q")); }
+    else showHistory();
+  }
+
   form.addEventListener("submit", function (e) {
     e.preventDefault();
     var q = input.value.trim(); if (!q) return;
@@ -238,8 +277,12 @@
     search(q);
   });
 
-  var params = new URLSearchParams(location.search);
-  if (params.get("v")) { var id0 = idFromUrl(params.get("v")) || params.get("v"); if (id0) playSingle(id0); }
-  else if (params.get("q")) { input.value = params.get("q"); search(params.get("q")); }
-  else showHistory();
+  // Init : résout le mode (préférence ou détection auto), puis démarre.
+  (function init() {
+    var pref = getPref();
+    function go(isProxy, auto) { proxyMode = isProxy; updateModeUI(auto); if (!proxyMode) ensureApi(); startup(); }
+    if (pref === "direct") go(false, false);
+    else if (pref === "proxy") go(true, false);
+    else probe(function (ok) { go(!ok, true); });
+  })();
 })();
