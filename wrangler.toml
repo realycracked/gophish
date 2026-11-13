@@ -1,0 +1,12 @@
+name = "vel-proxy"
+main = "src/index.js"
+compatibility_date = "2024-11-01"
+
+# Interface statique (public/) servie directement par le réseau edge de Cloudflare.
+# Les chemins qui ne correspondent à aucun fichier passent au Worker (ex. /p/...).
+[assets]
+directory = "./public"
+binding = "ASSETS"
+
+[observability]
+enabled = true

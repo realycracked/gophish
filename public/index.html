@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Vél·Tube</title>
+<meta name="description" content="Regarde YouTube à pleine vitesse, et ouvre n'importe quel site.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/style.css">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cdefs%3E%3ClinearGradient id='g' x1='0' y1='0' x2='1' y2='1'%3E%3Cstop offset='0' stop-color='%237c5cff'/%3E%3Cstop offset='1' stop-color='%2338e8ff'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='32' height='32' rx='8' fill='%230b0b14'/%3E%3Cpath d='M8 9l8 16 8-16' fill='none' stroke='url(%23g)' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+</head>
+<body>
+
+<div class="aurora" aria-hidden="true"></div>
+
+<header class="topbar">
+  <a class="brand" href="/">
+    <span class="logo" aria-hidden="true">
+      <svg viewBox="0 0 32 32" width="30" height="30">
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#7c5cff"/><stop offset="1" stop-color="#38e8ff"/></linearGradient></defs>
+        <path d="M7 8.5l9 17 9-17" fill="none" stroke="url(#lg)" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round"/>
+      </svg>
+    </span>
+    <span class="brand-name">Vél<i>·</i>Tube</span>
+  </a>
+  <nav class="quick">
+    <a class="qbtn qbtn-accent" href="/youtube">
+      <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M3 8.5a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M11 10l4 2-4 2z" fill="currentColor"/></svg>
+      Lecteur
+    </a>
+  </nav>
+</header>
+
+<main>
+  <section class="hero">
+    <span class="eyebrow">Lecteur rapide</span>
+    <h1>Regarde <span class="grad">YouTube</span>,<br>à pleine vitesse.</h1>
+    <p class="tag">Cherche une vidéo — elle se lit direct, sans passer par le proxy.</p>
+
+    <form id="yt" class="omni omni-xl" autocomplete="off">
+      <svg class="omni-ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+      <input id="yt-input" type="text" placeholder="Rechercher sur YouTube, ou coller un lien…" aria-label="Recherche YouTube" autofocus>
+      <button type="submit" class="go">Regarder</button>
+    </form>
+
+    <div class="chips">
+      <button class="chip" data-yt="musique 2026">Musique</button>
+      <button class="chip" data-yt="gaming fr">Gaming</button>
+      <button class="chip" data-yt="lofi hip hop">Lofi</button>
+      <button class="chip" data-yt="actu du jour">Actu</button>
+      <button class="chip" data-yt="football highlights">Foot</button>
+    </div>
+  </section>
+
+  <section class="alt">
+    <div class="alt-head"><span>Ou ouvre n'importe quel site</span></div>
+    <form id="omni" class="omni omni-sm" autocomplete="off">
+      <svg class="omni-ic" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></svg>
+      <input id="omni-input" type="text" inputmode="url" placeholder="site.com ou recherche…" aria-label="Adresse ou recherche">
+      <button type="submit" class="go">Ouvrir<span class="kbd">↵</span></button>
+    </form>
+    <div class="chips">
+      <button class="chip" data-go="https://www.google.com">Google</button>
+      <button class="chip" data-go="https://duckduckgo.com">DuckDuckGo</button>
+      <button class="chip" data-go="https://www.reddit.com">Reddit</button>
+      <button class="chip" data-go="https://www.wikipedia.org">Wikipédia</button>
+    </div>
+  </section>
+</main>
+
+<footer class="foot"><span>Vél·Tube — passerelle personnelle</span></footer>
+
+<script src="/app.js"></script>
+</body>
+</html>

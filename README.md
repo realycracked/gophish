@@ -1,66 +1,65 @@
-![gophish logo](https://raw.github.com/gophish/gophish/master/static/images/gophish_purple.png)
+# Vél·Tube
 
-Gophish
-=======
+Passerelle web rapide, centrée sur YouTube, avec une interface sombre et lisible.
+Cherche une vidéo (lecteur officiel, lecture directe depuis Google), ou ouvre
+n'importe quel site via le proxy.
 
-![Build Status](https://github.com/gophish/gophish/workflows/CI/badge.svg) [![GoDoc](https://godoc.org/github.com/gophish/gophish?status.svg)](https://godoc.org/github.com/gophish/gophish)
+Tourne **100 % gratuit et 24 h/24** sur **Cloudflare Workers** (pas d'auto-hébergement,
+pas de mise en veille).
 
-Gophish: Open-Source Phishing Toolkit
+## Fonctionnalités
 
-[Gophish](https://getgophish.com) is an open-source phishing toolkit designed for businesses and penetration testers. It provides the ability to quickly and easily setup and execute phishing engagements and security awareness training.
+- **Lecteur YouTube** (`/youtube`) : recherche (via Piped, avec repli direct sur
+  YouTube) et lecture par le **lecteur officiel intégré** — la vidéo arrive direct
+  de Google, sans passer par le proxy. File de lecture, précédent/suivant, lecture
+  auto, mode cinéma, plein écran, **mode musique** (le lecteur se réduit en bas),
+  **historique + reprise** là où on s'était arrêté (stocké sur l'appareil).
+- **Proxy** : ouvre n'importe quel site. Réécriture des URLs en streaming, cache
+  des ressources statiques au bord du réseau, et **barre de navigation** flottante
+  injectée sur les pages ouvertes (retour / suivant / recharger / accueil / adresse
+  / ouvrir l'original).
 
-### Install
+## Architecture
 
-Installation of Gophish is dead-simple - just download and extract the zip containing the [release for your system](https://github.com/gophish/gophish/releases/), and run the binary. Gophish has binary releases for Windows, Mac, and Linux platforms.
+| Fichier | Rôle |
+|---|---|
+| `src/index.js` | Worker : routeur + moteur proxy (fetch, suppression des en-têtes bloquants, réécriture `HTMLRewriter`, cache, rattrapage des navigations). |
+| `src/codec.js` | Encodage URL-safe réversible, partagé serveur/client. |
+| `public/vel-client.js` | Script injecté dans les pages proxifiées (réécriture des requêtes JS + barre de navigation). Servi tel quel, non bundlé. |
+| `public/index.html`, `app.js` | Accueil (recherche YouTube + proxy). |
+| `public/youtube.html`, `youtube.js` | Lecteur YouTube. |
+| `public/style.css` | Thème sombre commun. |
 
-### Building From Source
-**If you are building from source, please note that Gophish requires Go v1.10 or above!**
+## Déploiement (une seule fois, ~5 min)
 
-To build Gophish from source, simply run ```git clone https://github.com/gophish/gophish.git``` and ```cd``` into the project source directory. Then, run ```go build```. After this, you should have a binary called ```gophish``` in the current directory.
+Compte **Cloudflare gratuit** (https://dash.cloudflare.com/sign-up) et **Node.js** requis.
 
-### Docker
-You can also use Gophish via the official Docker container [here](https://hub.docker.com/r/gophish/gophish/).
-
-### Setup
-After running the Gophish binary, open an Internet browser to https://localhost:3333 and login with the default username and password listed in the log output.
-e.g.
+```bash
+npm install
+npx wrangler login     # ouvre le navigateur
+npm run deploy         # affiche ton URL : https://vel-proxy.<compte>.workers.dev
 ```
-time="2020-07-29T01:24:08Z" level=info msg="Please login with the username admin and the password 4304d5255378177d"
+
+Pour mettre à jour : `git pull` puis `npm run deploy`. Le nom (et le début de l'URL)
+se change dans `wrangler.toml` (`name`).
+
+## Développement local
+
+```bash
+npm run dev     # http://127.0.0.1:8787
+npm test        # tests unitaires (encodage + réécriture)
 ```
 
-Releases of Gophish prior to v0.10.1 have a default username of `admin` and password of `gophish`.
+## Limites connues
 
-### Documentation
+- **YouTube** : la recherche dépend d'instances Piped (parfois instables) avec repli
+  direct sur YouTube ; la lecture passe par le lecteur officiel (donc avec les pubs
+  YouTube habituelles). Le **mode musique** garde le son tant que la page reste ouverte ;
+  sur mobile, écran éteint, le navigateur peut mettre en pause (limite des lecteurs embarqués).
+- **Proxy** : les sites très lourds ou en WebSocket peuvent être lents ou instables.
+  Les WebSockets ne sont pas proxifiés.
 
-Documentation can be found on our [site](http://getgophish.com/documentation). Find something missing? Let us know by filing an issue!
+## Sécurité
 
-### Issues
-
-Find a bug? Want more features? Find something missing in the documentation? Let us know! Please don't hesitate to [file an issue](https://github.com/gophish/gophish/issues/new) and we'll get right on it.
-
-### License
-```
-Gophish - Open-Source Phishing Framework
-
-The MIT License (MIT)
-
-Copyright (c) 2013 - 2020 Jordan Wright
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software ("Gophish Community Edition") and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
-```
+Le Worker refuse les adresses locales/internes (localhost, IP privées, métadonnées
+cloud) pour éviter d'en faire un relais interne.
