@@ -8,7 +8,8 @@
     "dev": "wrangler dev",
     "build": "echo \"Pas d'étape de build (site statique + Worker)\"",
     "deploy": "wrangler deploy",
-    "test": "node --test \"test/**/*.test.js\""
+    "test": "node --test \"test/**/*.test.js\"",
+    "build:single": "node scripts/build-single.mjs"
   },
   "devDependencies": {
     "wrangler": "^3.99.0"
