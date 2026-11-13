@@ -1,16 +1,16 @@
 /* Vél·Tube — thème sombre sobre et lisible (sans néon) */
 :root {
   color-scheme: dark;
-  --bg: #0f1117;
-  --surface: #171a22;
-  --surface-2: #1e222c;
-  --fg: #f3f5fa;
-  --muted: #9aa4b6;
-  --line: rgba(255, 255, 255, 0.11);
-  --line-2: rgba(255, 255, 255, 0.07);
-  --accent: #ff5868;        /* rouge doux (actions YouTube) */
+  --bg: #0d0e1a;
+  --surface: #161828;
+  --surface-2: #20233c;
+  --fg: #eef0ff;
+  --muted: #a2a4c8;
+  --line: rgba(255, 255, 255, 0.10);
+  --line-2: rgba(255, 255, 255, 0.06);
+  --accent: #8b7bff;        /* indigo (actions principales) */
   --accent-ink: #ffffff;
-  --blue: #5b8cff;          /* bleu (proxy) */
+  --blue: #3f8bff;          /* bleu (proxy) */
   --radius: 14px;
   --shadow: 0 22px 44px -30px rgba(0, 0, 0, 0.8);
   --font-head: "Space Grotesk", system-ui, sans-serif;
