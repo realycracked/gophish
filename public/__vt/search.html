@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Recherche · Vél·Tube</title>
+<meta name="theme-color" content="#0d0e1a">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="/__vt/search.css">
+<script src="/__vt/theme.js"></script>
+</head>
+<body>
+<header class="top">
+  <a class="back" href="/__vt/" aria-label="Accueil">
+    <svg width="22" height="22" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+  </a>
+  <form class="sbox" id="form" role="search" autocomplete="off">
+    <input id="q" type="search" enterkeyhint="search" placeholder="Rechercher sur le web…" aria-label="Recherche">
+    <button type="submit" aria-label="Rechercher"><svg width="20" height="20" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="M20 20l-3.5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg></button>
+  </form>
+</header>
+<nav class="tabs" id="tabs">
+  <button type="button" data-t="web" class="on">Tout</button>
+  <button type="button" data-t="images">Images</button>
+</nav>
+<main class="main">
+  <div id="status" class="status" role="status" aria-live="polite"></div>
+  <section id="wiki" class="wiki" hidden></section>
+  <section id="strip" class="strip" hidden></section>
+  <ol id="results" class="results"></ol>
+  <div id="grid" class="grid" hidden></div>
+  <button id="more" class="more" type="button" hidden>Plus de résultats</button>
+</main>
+<div class="lightbox" id="lb" hidden>
+  <button class="lb-close" id="lb-close" type="button" aria-label="Fermer">✕</button>
+  <img id="lb-img" alt="">
+  <div class="lb-bar"><span id="lb-title"></span><a id="lb-page" href="#">Voir la page</a></div>
+</div>
+<script src="/__vt/search.js"></script>
+</body>
+</html>

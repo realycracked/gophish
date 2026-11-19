@@ -9,6 +9,7 @@
 //                         routes, ses chemins relatifs et ses modules JS marchent.
 
 import { chessSocket } from "./chess.js";
+import { searchApi } from "./search.js";
 export { ChessRoom } from "./chess.js";
 import { encodeUrl, decodeUrl } from "./codec.js";
 
@@ -132,6 +133,9 @@ export default {
 
     // Échecs en ligne (WebSocket direct vers la partie, sans proxy).
     if (path === APP + "chess/ws") return chessSocket(request, url, env);
+
+    // Recherche maison (résultats Bing + images + fiche Wikipédia).
+    if (path === APP + "api/search") return searchApi(url);
 
     // Logo d'un site pour l'écran d'accueil.
     if (path === APP + "icon") return siteIcon(url);

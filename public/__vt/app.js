@@ -96,6 +96,8 @@
     if (!v) return;
     if (mode === "yt") return openYouTube(v);
     var url = resolveQuery(v);
+    // Une recherche (pas une adresse) va sur notre page de résultats.
+    if (/^https:\/\/www\.bing\.com\/search\?/.test(url)) { window.location.href = "/__vt/search?q=" + encodeURIComponent(v); return; }
     if (url) openProxy(url);
   });
 
