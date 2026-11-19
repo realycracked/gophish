@@ -83,7 +83,7 @@
   function setMode(m) {
     mode = m; store("vt_mode", m);
     document.querySelectorAll(".seg button").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-m") === m); });
-    q.placeholder = m === "yt" ? "Rechercher une vidéo…" : "Site ou recherche…";
+    q.placeholder = m === "yt" ? "Une vidéo…" : "Un site, une recherche…";
     q.setAttribute("inputmode", m === "yt" ? "search" : "url");
   }
   document.querySelectorAll(".seg button").forEach(function (b) {
