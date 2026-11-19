@@ -14,11 +14,11 @@ export async function searchApi(url) {
 
   let body;
   if (type === "images") {
-    body = { images: await bingImages(q, page * 35, 35) };
+    body = { images: await bestImages(q, page * 35, 35) };
   } else {
     const [web, images, wiki] = await Promise.all([
       bingWeb(q, page),
-      page === 0 ? bingImages(q, 0, 12).catch(() => []) : [],
+      page === 0 ? bestImages(q, 0, 12) : [],
       page === 0 ? wikipedia(q).catch(() => null) : null,
     ]);
     body = { results: web, images, wiki };
@@ -58,9 +58,13 @@ async function bingWeb(q, page) {
   // interroge trois variantes en parallèle (flux RSS, plus fiable, et page HTML)
   // et on garde la plus pertinente.
   const base = "https://www.bing.com/search?q=" + encodeURIComponent(q) + (page ? "&first=" + (page * 10 + 1) : "");
+  // (Pas d'en-tête Accept pour le RSS : Bing renvoie alors un flux vide.)
+  const rss = { "user-agent": UA, "accept-language": HEADERS["accept-language"] };
   const tries = [
-    () => fetch(base + "&format=rss&setlang=fr&cc=FR", { headers: HEADERS }).then(parseRss),
-    () => fetch(base + "&format=rss", { headers: HEADERS }).then(parseRss),
+    () => fetch(base + "&format=rss&setlang=fr&cc=FR", { headers: rss }).then(parseRss),
+    () => fetch(base + "&format=rss&setlang=fr&cc=FR", { headers: { "user-agent": UA } }).then(parseRss),
+    () => fetch(base + "&format=rss&setlang=fr", { headers: rss }).then(parseRss),
+    () => fetch(base + "&format=rss", { headers: { "user-agent": UA } }).then(parseRss),
     () => fetch(base + "&setlang=fr&cc=FR&mkt=fr-FR", { headers: HEADERS }).then(parseBingWeb),
   ];
   const all = await Promise.all(tries.map((t) => t().catch(() => [])));
@@ -148,6 +152,13 @@ function decode(s) {
 }
 
 // ---------- Bing images ----------
+// Deux essais en parallèle : on garde celui dont les titres collent le mieux.
+async function bestImages(q, first, count) {
+  const all = await Promise.all([0, 1].map(() => bingImages(q, first, count).catch(() => [])));
+  const score = (list) => relevance(list.map((i) => ({ title: i.title, snippet: "", url: i.page })), q);
+  return score(all[1]) > score(all[0]) ? all[1] : all[0];
+}
+
 async function bingImages(q, first, count) {
   const u = `https://www.bing.com/images/async?q=${encodeURIComponent(q)}&first=${first}&count=${count}&mmasync=1`;
   const resp = await fetch(u, { headers: HEADERS });
