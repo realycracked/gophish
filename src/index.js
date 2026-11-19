@@ -128,6 +128,9 @@ export default {
       return new Response("Service workers désactivés par le proxy.", { status: 403 });
     }
 
+    // Logo d'un site pour l'écran d'accueil.
+    if (path === APP + "icon") return siteIcon(url);
+
     // Fichiers de l'application : jamais détournés vers un site.
     if (path.startsWith(APP)) return env.ASSETS.fetch(request);
 
@@ -212,6 +215,36 @@ function enterSite(url, target) {
 const STATIC_EXT = /\.(?:js|mjs|css|png|jpe?g|gif|webp|avif|svg|ico|bmp|woff2?|ttf|otf|eot|mp3|ogg|wav|json|map)$/i;
 function isStatic(pathname) {
   return STATIC_EXT.test(pathname);
+}
+
+// Logo d'un site (/__vt/icon?u=https://site.com) : service de favicons de Google
+// en 128 px, sinon celui de DuckDuckGo. 404 si aucun : l'accueil affiche alors
+// une lettre. Mis en cache une semaine au bord du réseau.
+async function siteIcon(url) {
+  let site;
+  try {
+    site = new URL(url.searchParams.get("u") || "");
+    if (!/^https?:$/.test(site.protocol)) throw new Error();
+  } catch {
+    return new Response("", { status: 400 });
+  }
+  const sources = [
+    "https://t2.gstatic.com/faviconV2?client=SOCIAL&type=FAVICON&fallback_opts=TYPE,SIZE,URL&size=128&url=" +
+      encodeURIComponent(site.origin),
+    "https://icons.duckduckgo.com/ip3/" + site.hostname + ".ico",
+  ];
+  for (const src of sources) {
+    try {
+      const r = await fetch(src, { cf: { cacheEverything: true, cacheTtl: 604800 } });
+      const type = r.headers.get("content-type") || "";
+      if (r.ok && type.startsWith("image/")) {
+        return new Response(r.body, {
+          headers: { "content-type": type, "cache-control": "public, max-age=604800" },
+        });
+      }
+    } catch {}
+  }
+  return new Response("", { status: 404, headers: { "cache-control": "public, max-age=3600" } });
 }
 
 function blockedTarget(target, env) {

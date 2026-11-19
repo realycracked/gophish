@@ -30,6 +30,14 @@ pas de mise en veille).
 | `public/__vt/youtube.html`, `youtube.js` | Lecteur YouTube. |
 | `public/__vt/style.css` | Thème sombre commun. |
 
+## Accueil
+
+Écran façon téléphone : horloge, barre de recherche (YouTube ou Web), grille
+d'« applis » avec les **vrais logos** des sites (récupérés par `/__vt/icon`, mis en
+cache une semaine ; une lettre colorée s'il n'y en a pas), et un dock (Lecteur,
+Favoris, Reprendre, Thème). « + » ajoute un site ; un appui long sur une icône
+passe en mode édition pour en retirer.
+
 ## Comment le proxy sert un site
 
 - **Mode site** : le site ouvert est servi à la racine avec ses vrais chemins

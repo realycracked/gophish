@@ -1,0 +1,145 @@
+/* Vél·Tube — accueil façon écran de téléphone. Couleurs : variables de theme.js. */
+:root {
+  color-scheme: dark;
+  --bg: #0d0e1a; --surface: #161828; --surface-2: #20233c; --fg: #eef0ff; --muted: #a2a4c8;
+  --line: rgba(255,255,255,.10); --accent: #8b7bff; --blue: #3f8bff;
+  --glass: color-mix(in srgb, var(--fg) 11%, transparent);
+  --glass-line: color-mix(in srgb, var(--fg) 14%, transparent);
+}
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+html, body { margin: 0; min-height: 100%; }
+body {
+  color: var(--fg); font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background:
+    radial-gradient(120% 70% at 10% 0%, color-mix(in srgb, var(--accent) 45%, transparent) 0%, transparent 55%),
+    radial-gradient(90% 60% at 100% 35%, color-mix(in srgb, var(--blue) 35%, transparent) 0%, transparent 60%),
+    radial-gradient(100% 60% at 50% 110%, color-mix(in srgb, var(--accent) 30%, transparent) 0%, transparent 60%),
+    var(--bg);
+  background-attachment: fixed;
+}
+button, input { font: inherit; color: inherit; }
+
+.screen {
+  position: relative; min-height: 100dvh; max-width: 620px; margin: 0 auto;
+  display: flex; flex-direction: column;
+  padding: env(safe-area-inset-top, 0px) max(16px, env(safe-area-inset-right, 0px)) env(safe-area-inset-bottom, 0px) max(16px, env(safe-area-inset-left, 0px));
+}
+
+/* Horloge */
+.clock { text-align: center; margin-top: clamp(28px, 7vh, 64px); }
+.clock .t { font-family: "Space Grotesk", system-ui, sans-serif; font-size: clamp(64px, 18vw, 92px); font-weight: 600; letter-spacing: -2px; line-height: 1; }
+.clock .d { color: var(--muted); font-size: 15px; margin-top: 8px; }
+
+/* Barre de recherche */
+.search {
+  margin: 26px 4px 0; display: flex; align-items: center; gap: 10px; height: 52px; padding: 0 7px 0 16px;
+  border-radius: 26px; background: var(--glass); border: 1px solid var(--glass-line);
+  backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px);
+}
+.search:focus-within { border-color: color-mix(in srgb, var(--accent) 60%, transparent); }
+.search svg { flex: none; opacity: .85; }
+.search input { flex: 1; min-width: 0; background: none; border: 0; outline: 0; font-size: 16px; }
+.search input::placeholder { color: var(--muted); }
+.seg { display: flex; flex: none; background: color-mix(in srgb, var(--bg) 45%, transparent); border-radius: 19px; padding: 3px; }
+.seg button { border: 0; background: none; color: var(--muted); font-weight: 600; font-size: 12px; padding: 8px 10px; border-radius: 16px; cursor: pointer; }
+.seg button.on { background: var(--accent); color: #fff; }
+
+/* Grille d'applis */
+.grid {
+  flex: 1; display: grid; grid-template-columns: repeat(auto-fill, minmax(76px, 1fr));
+  align-content: start; gap: 22px 6px; padding: 30px 0 24px;
+}
+.app {
+  display: flex; flex-direction: column; align-items: center; gap: 7px; position: relative;
+  background: none; border: 0; padding: 0; cursor: pointer; text-decoration: none; color: inherit;
+  user-select: none; -webkit-user-select: none; -webkit-touch-callout: none;
+}
+.lbl { font-size: 12px; max-width: 78px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ico {
+  width: 62px; height: 62px; border-radius: 18px; display: grid; place-items: center; position: relative; overflow: hidden;
+  font: 700 26px "Space Grotesk", system-ui, sans-serif; color: #fff;
+  box-shadow: 0 10px 20px -10px rgba(0,0,0,.7), inset 0 1px 0 rgba(255,255,255,.25);
+  transition: transform .15s;
+}
+.app:active .ico { transform: scale(.9); }
+.app:focus-visible .ico { outline: 2px solid var(--accent); outline-offset: 3px; }
+/* Vrai logo du site, sur une tuile claire */
+.ico.logo { background: #fff; }
+.ico.logo img { width: 66%; height: 66%; object-fit: contain; }
+.ico.add { background: var(--glass); border: 1.5px dashed color-mix(in srgb, var(--fg) 40%, transparent); box-shadow: none; color: var(--fg); font-weight: 400; font-size: 32px; }
+.ico-yt { background: linear-gradient(145deg, #ff4d4f, #c4161c); }
+.ico-yt::after { content: ""; width: 34px; height: 34px; background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'%3E%3Cpath d='M3 8.5a3 3 0 0 1 3-3h12a3 3 0 0 1 3 3v7a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3z' fill='%23fff'/%3E%3Cpath d='M10.5 9.5l4.5 2.5-4.5 2.5z' fill='%23e5252a'/%3E%3C/svg%3E") center/contain no-repeat; }
+/* Couleurs des lettres quand un site n'a pas de logo */
+.c0 { background: linear-gradient(145deg, #8b7bff, #5b45e0); }
+.c1 { background: linear-gradient(145deg, #ff5a5f, #c81d4e); }
+.c2 { background: linear-gradient(145deg, #ff9f43, #e8590c); }
+.c3 { background: linear-gradient(145deg, #2ed6a1, #0b9a74); }
+.c4 { background: linear-gradient(145deg, #3f8bff, #1d5fd6); }
+.c5 { background: linear-gradient(145deg, #f368e0, #a71d9a); }
+.c6 { background: linear-gradient(145deg, #6c7a96, #3d4660); }
+
+/* Mode édition : les icônes tremblent, une croix pour retirer */
+.editing .grid .app[data-i] .ico { animation: jiggle .28s infinite alternate ease-in-out; }
+.editing .grid .app[data-i]:nth-child(2n) .ico { animation-delay: -.14s; }
+@keyframes jiggle { from { transform: rotate(-2.2deg); } to { transform: rotate(2.2deg); } }
+.del {
+  display: none; position: absolute; top: -6px; left: calc(50% - 38px); width: 22px; height: 22px; border-radius: 50%;
+  background: #e8e9f5; color: #111; font: 700 12px Inter, sans-serif; place-items: center; z-index: 2;
+  box-shadow: 0 2px 6px rgba(0,0,0,.4);
+}
+.editing .grid .app[data-i] .del { display: grid; }
+.done {
+  position: fixed; top: calc(14px + env(safe-area-inset-top, 0px)); right: 16px; z-index: 5; display: none;
+  border: 0; background: var(--accent); color: #fff; font-weight: 600; font-size: 14px; padding: 8px 16px; border-radius: 16px; cursor: pointer;
+}
+.editing .done { display: block; }
+
+/* Dock */
+.dock {
+  position: sticky; bottom: calc(14px + env(safe-area-inset-bottom, 0px)); margin: 0 0 14px;
+  padding: 12px 14px; border-radius: 30px; display: flex; justify-content: space-around;
+  background: var(--glass); border: 1px solid var(--glass-line);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+}
+.dock .ico { width: 56px; height: 56px; }
+
+/* Message bref */
+.toast {
+  position: fixed; left: 50%; bottom: calc(120px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%);
+  background: rgba(0,0,0,.72); color: #fff; padding: 9px 15px; border-radius: 14px; font-size: 14px; white-space: nowrap;
+  opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 30;
+}
+.toast.show { opacity: 1; }
+
+/* Feuille d'ajout */
+.veil { position: fixed; inset: 0; background: rgba(0,0,0,.5); opacity: 0; pointer-events: none; transition: opacity .25s; z-index: 40; }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 41; max-width: 620px; margin: 0 auto;
+  background: var(--surface); border-radius: 26px 26px 0 0; border-top: 1px solid var(--line);
+  padding: 10px 20px calc(24px + env(safe-area-inset-bottom, 0px));
+  transform: translateY(105%); visibility: hidden; transition: transform .3s cubic-bezier(.2,.8,.2,1), visibility 0s .3s;
+}
+.open .veil { opacity: 1; pointer-events: auto; }
+.open .sheet { transform: none; visibility: visible; transition: transform .3s cubic-bezier(.2,.8,.2,1); }
+.grab { width: 40px; height: 5px; border-radius: 3px; background: var(--line); margin: 0 auto 16px; }
+.sheet h2 { margin: 0 0 16px; font: 600 18px "Space Grotesk", system-ui, sans-serif; }
+.prev { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+.pvn { font-weight: 600; }
+.muted { font-size: 13px; color: var(--muted); }
+.sheet input {
+  width: 100%; height: 48px; margin-bottom: 10px; padding: 0 14px; border-radius: 12px;
+  border: 1px solid var(--line); background: var(--surface-2); font-size: 16px; outline: 0;
+}
+.sheet input:focus { border-color: var(--accent); }
+.err { min-height: 18px; margin: -2px 2px 8px; font-size: 13px; color: #ff7b7b; }
+.ok { width: 100%; height: 50px; border: 0; border-radius: 14px; background: var(--accent); color: #fff; font-weight: 600; font-size: 16px; cursor: pointer; }
+
+@media (prefers-reduced-motion: reduce) {
+  .editing .grid .app[data-i] .ico { animation: none; }
+  .sheet, .veil, .toast { transition: none; }
+}
+
+/* Thème clair : contours pour que les tuiles blanches restent visibles */
+[data-vt-theme="clair"] { color-scheme: light; }
+[data-vt-theme="clair"] .ico.logo { box-shadow: 0 0 0 1px rgba(0,0,0,.08), 0 8px 18px -10px rgba(0,0,0,.35); }
