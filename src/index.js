@@ -8,6 +8,8 @@
 //                         est servi à la racine avec ses vrais chemins, pour que ses
 //                         routes, ses chemins relatifs et ses modules JS marchent.
 
+import { chessSocket } from "./chess.js";
+export { ChessRoom } from "./chess.js";
 import { encodeUrl, decodeUrl } from "./codec.js";
 
 const SITE_COOKIE = "__vt_site";
@@ -127,6 +129,9 @@ export default {
     if (request.headers.get("service-worker") === "script") {
       return new Response("Service workers désactivés par le proxy.", { status: 403 });
     }
+
+    // Échecs en ligne (WebSocket direct vers la partie, sans proxy).
+    if (path === APP + "chess/ws") return chessSocket(request, url, env);
 
     // Logo d'un site pour l'écran d'accueil.
     if (path === APP + "icon") return siteIcon(url);

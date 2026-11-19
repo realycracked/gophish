@@ -38,6 +38,14 @@ cache une semaine ; une lettre colorée s'il n'y en a pas), et un dock (Lecteur,
 Favoris, Reprendre, Thème). « + » ajoute un site ; un appui long sur une icône
 passe en mode édition pour en retirer.
 
+## Échecs (`/__vt/chess`)
+
+Sans proxy. **Créer une partie** donne un code de 5 caractères (ou un lien) ; l'ami
+le tape dans **Rejoindre**. Chaque partie est un *Durable Object* Cloudflare (gratuit)
+qui vérifie les coups avec chess.js et les relaie en direct par WebSocket ; on peut
+recharger la page ou changer de réseau, la partie reprend. Revanche (couleurs
+inversées), abandon, et mode **à deux sur cet écran**.
+
 ## Comment le proxy sert un site
 
 - **Mode site** : le site ouvert est servi à la racine avec ses vrais chemins

@@ -137,6 +137,12 @@
     yt.firstChild.className = "ico ico-yt";
     grid.appendChild(yt);
 
+    var ch = appEl("a", "Échecs");
+    ch.href = "/__vt/chess";
+    ch.firstChild.className = "ico ico-chess";
+    ch.firstChild.textContent = "\u265E\uFE0E";
+    grid.appendChild(ch);
+
     sites.forEach(function (s, i) {
       var b = appEl("a", s.name);
       b.href = toProxy(s.url);
