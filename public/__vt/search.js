@@ -36,16 +36,22 @@
     $("wiki").hidden = true; $("strip").hidden = true; $("grid").hidden = type !== "images"; $("more").hidden = true;
   }
 
-  function load(append) {
+  function load(append, attempt) {
+    attempt = attempt || 0;
     if (!q) { $("status").textContent = ""; return; }
     var my = ++seq;
     if (!append) { page = 0; clear(); }
     $("status").textContent = "Recherche…";
     $("more").hidden = true;
-    fetch("/__vt/api/search?q=" + encodeURIComponent(q) + "&type=" + type + "&page=" + page)
+    fetch("/__vt/api/search?q=" + encodeURIComponent(q) + "&type=" + type + "&page=" + page + "&n=" + attempt)
       .then(function (r) { return r.json(); })
       .then(function (d) {
         if (my !== seq) return;
+        // Bing renvoie parfois des résultats sans rapport : on redemande (2 fois max).
+        if (type === "web" && typeof d.score === "number" && d.score < 0.4 && attempt < 2) {
+          $("status").textContent = "Recherche de meilleurs résultats…";
+          return load(append, attempt + 1);
+        }
         $("status").textContent = "";
         if (type === "images") renderGrid(d.images || []);
         else renderWeb(d);
