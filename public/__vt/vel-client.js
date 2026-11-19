@@ -49,6 +49,20 @@
       return ORIGIN + "/w/" + enc(u.origin) + u.pathname + u.search + u.hash;
     }
 
+    // Certains sites fabriquent leurs sous-domaines à partir de location.hostname
+    // (ex. "api." + domaine) : "api.<notre domaine>" est rattaché au vrai site.
+    var PARENT = /^\d+(\.\d+){3}$/.test(location.hostname) || location.hostname.split(".").length < 3 ? "" : location.hostname.split(".").slice(1).join(".");
+    function siteParent() {
+      try { var h = new URL(HOME || CFG.base).hostname.split("."); return h.length > 2 ? h.slice(1).join(".") : h.join("."); } catch (e) { return ""; }
+    }
+    function fixSibling(url) {
+      if (PARENT && url.hostname !== location.hostname && url.hostname.slice(-PARENT.length - 1) === "." + PARENT) {
+        var sp = siteParent();
+        if (sp) url.hostname = url.hostname.slice(0, -PARENT.length - 1) + "." + sp;
+      }
+      return url;
+    }
+
     function proxied(u) {
       if (u == null) return u;
       if (typeof u !== "string") { if (u instanceof URL) u = u.href; else return u; }
@@ -56,7 +70,7 @@
       if (/^(data|blob|javascript|about|mailto|tel|sms|ws|wss):/i.test(u)) return u;
       if (u.charAt(0) === "#") return u;
       var url;
-      try { url = new URL(u, currentReal()); } catch (e) { return u; }
+      try { url = fixSibling(new URL(u, currentReal())); } catch (e) { return u; }
       if (url.origin === ORIGIN) {
         // Déjà une adresse du proxy ou de l'appli : on n'y touche pas.
         if (/^\/(w|p|__vt)\//.test(url.pathname)) return u;
@@ -109,7 +123,7 @@
 
     // WebSocket : wss://site/x -> wss://<proxy>/x (site ouvert) ou /w/<origine>/x.
     function wsProxied(u) {
-      var x = new URL(String(u), currentReal().replace(/^http/, "ws"));
+      var x = fixSibling(new URL(String(u), currentReal().replace(/^http/, "ws")));
       if (x.host === location.host) return x.href;
       var origin = (x.protocol === "wss:" || x.protocol === "https:" ? "https:" : "http:") + "//" + x.host;
       var base = (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host;
@@ -183,6 +197,34 @@
         navigator.serviceWorker.register = function () { return Promise.reject(new Error("Service workers désactivés par le proxy")); };
       }
     } catch (e) {}
+
+    // Adresses posées en JavaScript : réécrites dès l'affectation (une image
+    // commence à charger avant même d'être ajoutée à la page).
+    function patchProp(Ctor, prop, fn) {
+      try {
+        if (!Ctor) return;
+        var d = Object.getOwnPropertyDescriptor(Ctor.prototype, prop);
+        if (!d || !d.set) return;
+        Object.defineProperty(Ctor.prototype, prop, {
+          configurable: true, enumerable: d.enumerable, get: d.get,
+          set: function (v) { try { v = fn(String(v)); } catch (e) {} return d.set.call(this, v); }
+        });
+      } catch (e) {}
+    }
+    [[window.HTMLImageElement, "src"], [window.HTMLScriptElement, "src"], [window.HTMLIFrameElement, "src"],
+     [window.HTMLSourceElement, "src"], [window.HTMLMediaElement, "src"], [window.HTMLEmbedElement, "src"],
+     [window.HTMLTrackElement, "src"], [window.HTMLInputElement, "src"], [window.HTMLLinkElement, "href"],
+     [window.HTMLFormElement, "action"]].forEach(function (p) { patchProp(p[0], p[1], proxied); });
+    [[window.HTMLImageElement, "srcset"], [window.HTMLSourceElement, "srcset"]].forEach(function (p) { patchProp(p[0], p[1], proxiedSrcset); });
+    var _setAttr = Element.prototype.setAttribute;
+    Element.prototype.setAttribute = function (name, value) {
+      try {
+        var n = String(name).toLowerCase();
+        if (n === "src" || n === "href" || n === "action" || n === "formaction" || n === "poster" || n === "data-src") value = proxied(String(value));
+        else if (n === "srcset") value = proxiedSrcset(String(value));
+      } catch (e) {}
+      return _setAttr.call(this, name, value);
+    };
 
     var ATTRS = ["src", "href", "poster", "data-src", "data-href", "action", "formaction"];
     function fixEl(el) {
