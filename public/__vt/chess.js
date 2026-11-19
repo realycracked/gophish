@@ -1,0 +1,314 @@
+// Échecs : en ligne avec un code (WebSocket direct vers le Worker), ou à deux sur l'écran.
+import { Chess } from "/__vt/vendor/chess.js";
+
+const $ = (id) => document.getElementById(id);
+const GLYPH = { k: "♚", q: "♛", r: "♜", b: "♝", n: "♞", p: "♟" };
+const VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
+
+function read(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function store(k, v) { try { localStorage.setItem(k, v); } catch {} }
+function playerId() {
+  let id = read("vt_chess_id");
+  if (!id) { id = (crypto.randomUUID ? crypto.randomUUID() : String(Math.random()).slice(2)); store("vt_chess_id", id); }
+  return id;
+}
+function newCode() {
+  const a = new Uint32Array(5); crypto.getRandomValues(a);
+  return Array.from(a, (n) => ALPHABET[n % ALPHABET.length]).join("");
+}
+
+let toastTimer;
+function toast(msg) {
+  const t = $("toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 1800);
+}
+
+// ---------- État ----------
+let mode = null;          // "online" | "local"
+let code = null;
+let ws = null, wsRetry = 0, pingTimer = null, closedForGood = false;
+let me = "w";             // couleur jouée (en ligne) ; en local, celle au trait
+let moves = [];           // coups en notation SAN
+let result = null;        // { winner, reason } ou null
+let players = { w: false, b: false, bJoined: false };
+let game = new Chess();
+let selected = null;
+
+// ---------- Plateau ----------
+const board = $("board");
+function orientation() { return mode === "online" && me === "b" ? "b" : "w"; }
+
+function render() {
+  game = new Chess();
+  for (const san of moves) { try { game.move(san); } catch { break; } }
+  const hist = game.history({ verbose: true });
+  const last = hist[hist.length - 1];
+  const flip = orientation() === "b";
+  const files = "abcdefgh";
+  const hints = new Map();
+  if (selected) for (const m of game.moves({ square: selected, verbose: true })) hints.set(m.to, m);
+  let checkSq = null;
+  if (game.inCheck()) {
+    for (const row of game.board()) for (const c of row) if (c && c.type === "k" && c.color === game.turn()) checkSq = c.square;
+  }
+
+  board.innerHTML = "";
+  for (let r = 0; r < 8; r++) {
+    for (let f = 0; f < 8; f++) {
+      const rank = flip ? r + 1 : 8 - r;
+      const file = flip ? files[7 - f] : files[f];
+      const sq = file + rank;
+      const el = document.createElement("div");
+      const light = (files.indexOf(file) + rank) % 2 === 1;
+      el.className = "sq " + (light ? "l" : "d");
+      el.dataset.sq = sq;
+      el.setAttribute("role", "gridcell");
+      if (last && (last.from === sq || last.to === sq)) el.classList.add("last");
+      if (sq === selected) el.classList.add("sel");
+      if (sq === checkSq) el.classList.add("check");
+      const piece = game.get(sq);
+      if (piece) {
+        const p = document.createElement("span");
+        p.className = "pc " + piece.color;
+        p.textContent = GLYPH[piece.type] + "︎";
+        el.appendChild(p);
+        el.setAttribute("aria-label", sq + " " + (piece.color === "w" ? "blanc" : "noir") + " " + piece.type);
+      } else el.setAttribute("aria-label", sq);
+      if (hints.has(sq)) el.classList.add("hint", ...(piece || hints.get(sq).flags.includes("e") ? ["cap"] : []));
+      if (f === 0) el.insertAdjacentHTML("beforeend", `<span class="coord r">${rank}</span>`);
+      if (r === 7) el.insertAdjacentHTML("beforeend", `<span class="coord f">${file}</span>`);
+      board.appendChild(el);
+    }
+  }
+  renderSide();
+}
+
+function captured(color) {
+  // Pièces de `color` prises par l'adversaire.
+  const start = { p: 8, n: 2, b: 2, r: 2, q: 1 };
+  const now = { p: 0, n: 0, b: 0, r: 0, q: 0 };
+  for (const row of game.board()) for (const c of row) if (c && c.color === color && c.type !== "k") now[c.type]++;
+  let s = "", pts = 0;
+  for (const t of ["q", "r", "b", "n", "p"]) {
+    const n = Math.max(0, start[t] - now[t]);
+    s += GLYPH[t].repeat(n); pts += n * VALUE[t];
+  }
+  return { s, pts };
+}
+
+function renderSide() {
+  const bottom = orientation();
+  const top = bottom === "w" ? "b" : "w";
+  const name = (c) => {
+    if (mode === "local") return c === "w" ? "Blancs" : "Noirs";
+    if (c === me) return "Toi (" + (c === "w" ? "blancs" : "noirs") + ")";
+    return "Adversaire (" + (c === "w" ? "blancs" : "noirs") + ")";
+  };
+  const fill = (el, c, capEl) => {
+    el.querySelector(".name").textContent = name(c);
+    el.classList.toggle("on", mode === "local" || !!players[c]);
+    el.classList.toggle("turn", !result && game.turn() === c && (mode === "local" || players.bJoined));
+    // On affiche, à côté d'un joueur, les pièces qu'il a prises.
+    capEl.textContent = captured(c === "w" ? "b" : "w").s;
+  };
+  fill($("p-top"), top, $("cap-top"));
+  fill($("p-bot"), bottom, $("cap-bot"));
+
+  // Statut
+  const st = $("status");
+  st.classList.toggle("end", !!result);
+  if (result) {
+    const who = result.winner === null ? "Partie nulle" :
+      mode === "local" ? (result.winner === "w" ? "Les blancs gagnent" : "Les noirs gagnent") :
+      result.winner === me ? "Tu as gagné !" : me === "s" ? (result.winner === "w" ? "Les blancs gagnent" : "Les noirs gagnent") : "Tu as perdu";
+    st.textContent = who + " · " + result.reason;
+  } else if (mode === "online" && !players.bJoined) {
+    st.textContent = "En attente de ton ami…";
+  } else if (mode === "online" && me === "s") {
+    st.textContent = "Tu regardes la partie";
+  } else if (mode === "online") {
+    st.textContent = game.turn() === me ? (game.inCheck() ? "Échec ! À toi de jouer" : "À toi de jouer") : "Ton ami réfléchit…";
+  } else {
+    st.textContent = (game.turn() === "w" ? "Aux blancs" : "Aux noirs") + (game.inCheck() ? " · échec !" : "");
+  }
+
+  $("share").hidden = !(mode === "online" && !players.bJoined && me === "w");
+  $("rematch").hidden = !(result && (mode === "local" || me !== "s"));
+  $("resign").hidden = !!result || (mode === "online" && (me === "s" || !players.bJoined));
+  $("undo").hidden = !(mode === "local" && moves.length && !result);
+
+  // Liste des coups
+  const ol = $("moves"); ol.innerHTML = "";
+  for (let i = 0; i < moves.length; i += 2) {
+    const li = document.createElement("li");
+    li.innerHTML = "<b></b><span></span>";
+    li.firstChild.textContent = moves[i];
+    li.lastChild.textContent = moves[i + 1] || "";
+    ol.appendChild(li);
+  }
+}
+
+// ---------- Jouer ----------
+function canMove() {
+  if (result) return false;
+  if (mode === "local") return true;
+  return me !== "s" && players.bJoined && game.turn() === me;
+}
+
+board.addEventListener("click", (e) => {
+  const sqEl = e.target.closest(".sq");
+  if (!sqEl || !canMove()) return;
+  const sq = sqEl.dataset.sq;
+  const piece = game.get(sq);
+  if (selected) {
+    const mv = game.moves({ square: selected, verbose: true }).filter((m) => m.to === sq);
+    if (mv.length) {
+      if (mv.some((m) => m.promotion)) return askPromotion(selected, sq);
+      return play(selected, sq);
+    }
+  }
+  selected = piece && piece.color === game.turn() ? (selected === sq ? null : sq) : null;
+  render();
+});
+
+function askPromotion(from, to) {
+  const box = $("promo");
+  box.innerHTML = "";
+  for (const t of ["q", "r", "b", "n"]) {
+    const b = document.createElement("button");
+    b.type = "button";
+    b.innerHTML = `<span class="pc ${game.turn()}">${GLYPH[t]}︎</span>`;
+    b.addEventListener("click", () => { box.hidden = true; play(from, to, t); });
+    box.appendChild(b);
+  }
+  box.hidden = false;
+}
+
+function play(from, to, promotion) {
+  selected = null;
+  let mv;
+  try { mv = game.move({ from, to, promotion: promotion || "q" }); } catch { mv = null; }
+  if (!mv) return render();
+  moves.push(mv.san);
+  if (mode === "local") {
+    result = outcome(game);
+    saveLocal();
+  } else {
+    send({ t: "move", from, to, promotion: promotion || "q" });
+  }
+  render();
+}
+
+function outcome(c) {
+  if (c.isCheckmate()) return { winner: c.turn() === "w" ? "b" : "w", reason: "échec et mat" };
+  if (c.isStalemate()) return { winner: null, reason: "pat" };
+  if (c.isInsufficientMaterial()) return { winner: null, reason: "matériel insuffisant" };
+  if (c.isThreefoldRepetition()) return { winner: null, reason: "répétition" };
+  if (c.isDraw()) return { winner: null, reason: "règle des 50 coups" };
+  return null;
+}
+
+// ---------- En ligne ----------
+function send(m) { if (ws && ws.readyState === 1) ws.send(JSON.stringify(m)); }
+
+function connect(join) {
+  closedForGood = false;
+  const proto = location.protocol === "https:" ? "wss:" : "ws:";
+  const sock = new WebSocket(`${proto}//${location.host}/__vt/chess/ws?c=${code}&p=${encodeURIComponent(playerId())}${join ? "&join=1" : ""}`);
+  ws = sock;
+  sock.onopen = () => {
+    wsRetry = 0;
+    clearInterval(pingTimer); pingTimer = setInterval(() => send({ t: "ping" }), 25000);
+  };
+  sock.onmessage = (e) => {
+    if (sock !== ws) return;
+    let m; try { m = JSON.parse(e.data); } catch { return; }
+    if (m.t === "error") {
+      closedForGood = true;
+      leave();
+      $("lobby-err").textContent = m.msg;
+      return;
+    }
+    if (m.t !== "state") return;
+    const before = moves.length;
+    me = m.you; moves = m.moves; result = m.result; players = m.players;
+    if (moves.length > before && moves.length % 2 === (me === "w" ? 0 : 1) && navigator.vibrate) navigator.vibrate(20);
+    selected = null;
+    showGame();
+    render();
+  };
+  sock.onclose = () => {
+    if (sock !== ws) return; // ancienne connexion
+    clearInterval(pingTimer);
+    if (closedForGood || mode !== "online") return;
+    players = { ...players, w: me === "w" ? false : players.w, b: me === "b" ? false : players.b };
+    $("status").textContent = "Connexion perdue, reconnexion…";
+    setTimeout(() => { if (mode === "online" && !closedForGood) connect(false); }, Math.min(8000, 800 * 2 ** wsRetry++));
+  };
+}
+
+function startOnline(c, join) {
+  mode = "online"; code = c; moves = []; result = null; players = { w: false, b: false, bJoined: false };
+  history.replaceState(null, "", "/__vt/chess?c=" + code);
+  $("code-chip").textContent = code; $("code-chip").hidden = false;
+  $("big-code").textContent = code;
+  connect(join);
+}
+
+// ---------- À deux sur l'écran ----------
+function saveLocal() { store("vt_chess_local", JSON.stringify({ moves, result })); }
+function startLocal() {
+  mode = "local"; code = null;
+  try { const s = JSON.parse(read("vt_chess_local")); if (s && Array.isArray(s.moves)) { moves = s.moves; result = s.result; } } catch {}
+  history.replaceState(null, "", "/__vt/chess?local=1");
+  $("code-chip").hidden = true;
+  showGame(); render();
+}
+
+// ---------- Écrans ----------
+function showGame() { $("lobby").hidden = true; $("game").hidden = false; }
+function leave() {
+  closedForGood = true;
+  if (ws) try { ws.close(); } catch {}
+  ws = null; mode = null; code = null; moves = []; result = null; selected = null;
+  history.replaceState(null, "", "/__vt/chess");
+  $("code-chip").hidden = true;
+  $("game").hidden = true; $("lobby").hidden = false;
+}
+
+$("create").addEventListener("click", () => { $("lobby-err").textContent = ""; startOnline(newCode(), false); });
+$("join").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const c = $("join-code").value.trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+  if (!/^[A-HJ-NP-Z2-9]{5}$/.test(c)) { $("lobby-err").textContent = "Le code fait 5 caractères (ex. K7QXM)."; return; }
+  $("lobby-err").textContent = "";
+  startOnline(c, true);
+});
+$("join-code").addEventListener("input", (e) => { e.target.value = e.target.value.toUpperCase(); });
+$("local").addEventListener("click", startLocal);
+$("leave").addEventListener("click", leave);
+$("resign").addEventListener("click", () => {
+  if (!confirm("Abandonner la partie ?")) return;
+  if (mode === "local") { result = { winner: game.turn() === "w" ? "b" : "w", reason: "abandon" }; saveLocal(); render(); }
+  else send({ t: "resign" });
+});
+$("rematch").addEventListener("click", () => {
+  if (mode === "local") { moves = []; result = null; saveLocal(); render(); }
+  else send({ t: "rematch" });
+});
+$("undo").addEventListener("click", () => { moves.pop(); result = null; saveLocal(); render(); });
+
+async function shareLink() {
+  const link = location.origin + "/__vt/chess?c=" + code;
+  if (navigator.share) { try { await navigator.share({ title: "Partie d'échecs", text: "Rejoins ma partie, code " + code, url: link }); return; } catch {} }
+  try { await navigator.clipboard.writeText(link); toast("Lien copié"); } catch { toast("Code : " + code); }
+}
+$("share-btn").addEventListener("click", shareLink);
+$("code-chip").addEventListener("click", shareLink);
+
+// Lien direct : /__vt/chess?c=CODE rejoint la partie.
+const params = new URLSearchParams(location.search);
+const c0 = (params.get("c") || "").toUpperCase();
+if (/^[A-HJ-NP-Z2-9]{5}$/.test(c0)) startOnline(c0, true);
+else if (params.get("local")) startLocal();

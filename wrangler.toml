@@ -10,3 +10,12 @@ binding = "ASSETS"
 
 [observability]
 enabled = true
+
+# Échecs en ligne : une partie = un Durable Object (stockage SQLite, offert sur le plan gratuit).
+[[durable_objects.bindings]]
+name = "CHESS"
+class_name = "ChessRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ChessRoom"]
