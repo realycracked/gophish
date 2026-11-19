@@ -139,6 +139,13 @@
     yt.firstChild.className = "ico ico-yt";
     grid.appendChild(yt);
 
+    // Le vrai site YouTube via le proxy (version mobile, plus légère).
+    var ytp = appEl("a", "YouTube web");
+    ytp.href = toProxy("https://m.youtube.com/");
+    ytp.title = "youtube.com via le proxy";
+    ytp.firstChild.className = "ico ico-yt ico-badge";
+    grid.appendChild(ytp);
+
     var ch = appEl("a", "Échecs");
     ch.href = "/__vt/chess";
     ch.firstChild.className = "ico ico-chess";
