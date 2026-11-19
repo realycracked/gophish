@@ -55,8 +55,10 @@ inversées), abandon, et mode **à deux sur cet écran**.
 - WebSockets relayés par le Worker ; `postMessage` entre la page et ses iframes
   corrigé ; cookies `__Host-` pris en charge ; service workers des sites bloqués.
 - L'application elle-même vit sous `/__vt/` (`/` et `/youtube` y mènent).
-- Recherche par défaut : **Bing** (Google, DuckDuckGo, Brave, Startpage et Yahoo
-  bloquent les requêtes venant de Cloudflare).
+- Recherche : page maison `/__vt/search` (résultats Bing en français analysés par
+  le Worker, bande d'images, onglet Images, fiche Wikipédia). Google, DuckDuckGo,
+  Brave, Startpage, Qwant et Yahoo bloquent les requêtes venant de Cloudflare, et
+  la page Bing complète y arrive « dégradée » (ni images ni fiche).
 
 Limites : un seul site en « mode site » à la fois (deux onglets sur deux sites
 différents se gênent), et les captchas anti-robots (Cloudflare Turnstile…) ne

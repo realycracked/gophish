@@ -321,7 +321,7 @@
     function resolveAddr(val) {
       if (/^https?:\/\//i.test(val)) return val;
       if (/^[^\s.]+\.[^\s]{2,}$/.test(val) && !/\s/.test(val)) return "https://" + val;
-      return "https://www.bing.com/search?q=" + encodeURIComponent(val) + "&setlang=fr";
+      return null; // une recherche : notre page de résultats
     }
     function makeBar() {
       try {
@@ -373,7 +373,7 @@
           var inp = document.createElement("input");
           inp.value = currentReal(); addr.textContent = ""; addr.appendChild(inp); inp.focus(); inp.select();
           inp.addEventListener("keydown", function (e) {
-            if (e.key === "Enter") { var v = inp.value.trim(); if (v) location.href = ORIGIN + "/w/" + enc(new URL(resolveAddr(v)).origin) + new URL(resolveAddr(v)).pathname + new URL(resolveAddr(v)).search; }
+            if (e.key === "Enter") { var v = inp.value.trim(); if (!v) return; var a = resolveAddr(v); if (!a) { location.href = ORIGIN + "/__vt/search?q=" + encodeURIComponent(v); return; } var au = new URL(a); location.href = ORIGIN + "/w/" + enc(au.origin) + au.pathname + au.search; }
             else if (e.key === "Escape") renderAddr();
           });
           inp.addEventListener("blur", renderAddr);
