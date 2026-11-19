@@ -21,9 +21,9 @@ export async function searchApi(url) {
       page === 0 ? bestImages(q, 0, 12) : [],
       page === 0 ? wikipedia(q).catch(() => null) : null,
     ]);
-    body = { results: web, images, wiki };
+    body = { results: web, images, wiki, score: Math.round(relevance(web, q) * 100) / 100 };
   }
-  return json(body, 200, 600);
+  return json(body, 200, 0);
 }
 
 function json(obj, status = 200, maxAge = 0) {
