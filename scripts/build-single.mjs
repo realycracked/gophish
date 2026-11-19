@@ -14,10 +14,10 @@ const TYPES = {
 };
 
 const map = {};
-for (const f of readdirSync("public")) {
+for (const f of readdirSync("public/__vt")) {
   const type = TYPES[extname(f)];
   if (!type) continue;
-  map["/" + f] = { type, body: readFileSync(join("public", f), "utf8") };
+  map["/__vt/" + f] = { type, body: readFileSync(join("public/__vt", f), "utf8") };
 }
 writeFileSync("src/assets.generated.js", "export const ASSETS_MAP = " + JSON.stringify(map) + ";\n");
 

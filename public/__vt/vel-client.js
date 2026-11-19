@@ -4,8 +4,8 @@
   "use strict";
   try {
     var CFG = window.__VEL || {};
-    var BASE = CFG.base;
     var ORIGIN = location.origin;
+    var HOME = CFG.home || "";            // origine servie à la racine ("mode site"), sinon ""
     var nativeOpen = window.open ? window.open.bind(window) : null;
 
     function enc(url) {
@@ -14,25 +14,58 @@
       for (var i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
       return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
     }
-    function absolute(u) { try { return new URL(u, BASE).href; } catch (e) { return null; } }
+    function dec(code) {
+      var s = code.replace(/-/g, "+").replace(/_/g, "/");
+      while (s.length % 4) s += "=";
+      var bin = atob(s), bytes = new Uint8Array(bin.length);
+      for (var i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      return new TextDecoder().decode(bytes);
+    }
+
+    // URL réelle de la page courante (suit les changements d'adresse des web apps).
+    function currentReal() {
+      try {
+        var p = location.pathname;
+        if (p.indexOf("/w/") === 0) {
+          var rest = p.slice(3), i = rest.indexOf("/");
+          var origin = dec(i < 0 ? rest : rest.slice(0, i));
+          return new URL(origin + (i < 0 ? "/" : rest.slice(i)) + location.search + location.hash).href;
+        }
+        if (HOME) {
+          var q = location.search.replace(/([?&])__vts=1(&|$)/, function (m, a, b) { return b ? a : ""; });
+          return new URL(HOME + p + q + location.hash).href;
+        }
+      } catch (e) {}
+      return CFG.base || location.href;
+    }
+    window.__VEL_REAL = function () { try { return new URL(currentReal()).origin; } catch (e) { return ORIGIN; } };
+
+    // Adresse réelle -> adresse dans le proxy (chemin racine pour le site ouvert,
+    // /w/<origine>/<chemin> pour les autres domaines).
+    function toProxy(abs) {
+      var u = new URL(abs);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return abs;
+      if (HOME && u.origin === HOME) return u.pathname + u.search + u.hash;
+      return ORIGIN + "/w/" + enc(u.origin) + u.pathname + u.search + u.hash;
+    }
 
     function proxied(u) {
       if (u == null) return u;
-      u = String(u);
+      if (typeof u !== "string") { if (u instanceof URL) u = u.href; else return u; }
       if (!u) return u;
       if (/^(data|blob|javascript|about|mailto|tel|sms|ws|wss):/i.test(u)) return u;
       if (u.charAt(0) === "#") return u;
-      if (u.indexOf(ORIGIN + "/p/") === 0 || u.indexOf("/p/") === 0) return u;
-      var a = absolute(u);
-      if (!a) return u;
-      try {
-        var url = new URL(a);
-        if (url.origin === ORIGIN) {
-          if (url.pathname.indexOf("/p/") === 0) return a;
-          a = new URL(url.pathname + url.search + url.hash, BASE).href;
-        }
-      } catch (e) {}
-      return ORIGIN + "/p/" + enc(a);
+      var url;
+      try { url = new URL(u, currentReal()); } catch (e) { return u; }
+      if (url.origin === ORIGIN) {
+        // Déjà une adresse du proxy ou de l'appli : on n'y touche pas.
+        if (/^\/(w|p|__vt)\//.test(url.pathname)) return u;
+        // Sinon le site a fabriqué l'adresse à partir de location.origin : en
+        // mode site c'est déjà bon, ailleurs on la rattache au vrai domaine.
+        if (HOME && /^\//.test(u)) return u;
+        try { url = new URL(url.pathname + url.search + url.hash, currentReal()); } catch (e) { return u; }
+      }
+      try { return toProxy(url.href); } catch (e) { return u; }
     }
     function proxiedSrcset(v) {
       try {
@@ -50,8 +83,8 @@
     if (_fetch) {
       window.fetch = function (input, init) {
         try {
-          if (typeof input === "string") input = proxied(input);
-          else if (input && input.url) input = new Request(proxied(input.url), input);
+          if (typeof input === "string" || input instanceof URL) input = proxied(String(input));
+          else if (input && input.url) { var nu = proxied(input.url); if (nu !== input.url) input = new Request(nu, input); }
         } catch (e) {}
         return _fetch.call(this, input, init);
       };
@@ -59,20 +92,97 @@
 
     var _open = XMLHttpRequest.prototype.open;
     XMLHttpRequest.prototype.open = function (method, url) {
-      try { arguments[1] = proxied(url); } catch (e) {}
+      try { arguments[1] = proxied(String(url)); } catch (e) {}
       return _open.apply(this, arguments);
     };
 
     var _wopen = window.open;
     window.open = function (u, t, f) {
-      try { u = proxied(u); } catch (e) {}
+      try { if (u) u = proxied(String(u)); } catch (e) {}
       return _wopen ? _wopen.call(window, u, t, f) : null;
     };
 
     if (navigator.sendBeacon) {
       var _beacon = navigator.sendBeacon.bind(navigator);
-      navigator.sendBeacon = function (u, d) { try { u = proxied(u); } catch (e) {} return _beacon(u, d); };
+      navigator.sendBeacon = function (u, d) { try { u = proxied(String(u)); } catch (e) {} return _beacon(u, d); };
     }
+
+    // WebSocket : wss://site/x -> wss://<proxy>/x (site ouvert) ou /w/<origine>/x.
+    function wsProxied(u) {
+      var x = new URL(String(u), currentReal().replace(/^http/, "ws"));
+      if (x.host === location.host) return x.href;
+      var origin = (x.protocol === "wss:" || x.protocol === "https:" ? "https:" : "http:") + "//" + x.host;
+      var base = (location.protocol === "https:" ? "wss:" : "ws:") + "//" + location.host;
+      if (HOME && origin === HOME) return base + x.pathname + x.search;
+      return base + "/w/" + enc(origin) + x.pathname + x.search;
+    }
+    var _WS = window.WebSocket;
+    if (_WS) {
+      var PWS = function (url, protocols) {
+        try { url = wsProxied(url); } catch (e) {}
+        return protocols === undefined ? new _WS(url) : new _WS(url, protocols);
+      };
+      PWS.prototype = _WS.prototype;
+      PWS.CONNECTING = 0; PWS.OPEN = 1; PWS.CLOSING = 2; PWS.CLOSED = 3;
+      window.WebSocket = PWS;
+    }
+
+    // postMessage : toutes les pages proxifiées partagent notre domaine, donc un
+    // message adressé à "https://jeu.com" serait jeté par le navigateur. On
+    // l'envoie à "*", emballé avec l'origine réelle de l'expéditeur (retrouvée
+    // d'après l'adresse du script appelant), et on le déballe à la réception.
+    function realOriginOfScript(src) {
+      try {
+        var u = new URL(src);
+        if (u.origin !== ORIGIN) return u.origin;
+        if (u.pathname.indexOf("/w/") === 0) {
+          var rest = u.pathname.slice(3), i = rest.indexOf("/");
+          return dec(i < 0 ? rest : rest.slice(0, i));
+        }
+        if (u.pathname.indexOf("/__vt/") === 0) return "";
+        return HOME || "";
+      } catch (e) { return ""; }
+    }
+    function senderOrigin() {
+      try {
+        var st = String(new Error().stack || ""), re = /(https?:\/\/[^\s()]+?):\d+:\d+/g, m;
+        while ((m = re.exec(st))) {
+          if (m[1].indexOf("/__vt/vel-client.js") >= 0) continue;
+          var o = realOriginOfScript(m[1]);
+          if (o) return o;
+        }
+      } catch (e) {}
+      return "";
+    }
+    var _pm = window.postMessage;
+    window.postMessage = function (msg, target, transfer) {
+      var from = senderOrigin();
+      var box = from ? { __vtBox: 1, o: from, d: msg } : msg;
+      if (target && typeof target === "object") {
+        var opts = {}; for (var k in target) opts[k] = target[k];
+        opts.targetOrigin = "*";
+        return _pm.call(this, box, opts);
+      }
+      return transfer === undefined ? _pm.call(this, box, "*") : _pm.call(this, box, "*", transfer);
+    };
+    try {
+      var dd = Object.getOwnPropertyDescriptor(MessageEvent.prototype, "data");
+      var od = Object.getOwnPropertyDescriptor(MessageEvent.prototype, "origin");
+      var boxOf = function (ev) { var d = dd.get.call(ev); return d && typeof d === "object" && d.__vtBox === 1 ? d : null; };
+      if (dd && dd.get) Object.defineProperty(MessageEvent.prototype, "data", {
+        configurable: true, get: function () { var b = boxOf(this); return b ? b.d : dd.get.call(this); }
+      });
+      if (od && od.get) Object.defineProperty(MessageEvent.prototype, "origin", {
+        configurable: true, get: function () { var b = boxOf(this); return b ? b.o : od.get.call(this); }
+      });
+    } catch (e) {}
+
+    // Un service worker du site s'installerait sur tout notre domaine : refusé.
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.register) {
+        navigator.serviceWorker.register = function () { return Promise.reject(new Error("Service workers désactivés par le proxy")); };
+      }
+    } catch (e) {}
 
     var ATTRS = ["src", "href", "poster", "data-src", "data-href", "action", "formaction"];
     function fixEl(el) {
@@ -113,7 +223,7 @@
     function resolveAddr(val) {
       if (/^https?:\/\//i.test(val)) return val;
       if (/^[^\s.]+\.[^\s]{2,}$/.test(val) && !/\s/.test(val)) return "https://" + val;
-      return "https://duckduckgo.com/?q=" + encodeURIComponent(val);
+      return "https://www.bing.com/search?q=" + encodeURIComponent(val) + "&setlang=fr";
     }
     function makeBar() {
       try {
@@ -151,21 +261,21 @@
 
         var bar = root.querySelector(".bar");
         var addr = root.querySelector("#vb-addr");
-        function renderAddr() { addr.textContent = BASE; }
+        function renderAddr() { addr.textContent = currentReal(); }
         renderAddr();
         root.querySelector("#vb-b").onclick = function () { history.back(); };
         root.querySelector("#vb-f").onclick = function () { history.forward(); };
         root.querySelector("#vb-r").onclick = function () { location.reload(); };
-        root.querySelector("#vb-h").onclick = function () { location.href = ORIGIN + "/"; };
-        root.querySelector("#vb-o").onclick = function () { if (nativeOpen) nativeOpen(BASE, "_blank"); };
+        root.querySelector("#vb-h").onclick = function () { location.href = ORIGIN + "/__vt/"; };
+        root.querySelector("#vb-o").onclick = function () { if (nativeOpen) nativeOpen(currentReal(), "_blank"); };
         root.querySelector("#vb-x").onclick = function () { bar.classList.add("hidden"); root.querySelector("#vb-handle").classList.remove("hidden"); };
         root.querySelector("#vb-handle").onclick = function () { bar.classList.remove("hidden"); root.querySelector("#vb-handle").classList.add("hidden"); };
         addr.onclick = function () {
           if (addr.querySelector("input")) return;
           var inp = document.createElement("input");
-          inp.value = BASE; addr.textContent = ""; addr.appendChild(inp); inp.focus(); inp.select();
+          inp.value = currentReal(); addr.textContent = ""; addr.appendChild(inp); inp.focus(); inp.select();
           inp.addEventListener("keydown", function (e) {
-            if (e.key === "Enter") { var v = inp.value.trim(); if (v) location.href = ORIGIN + "/p/" + enc(resolveAddr(v)); }
+            if (e.key === "Enter") { var v = inp.value.trim(); if (v) location.href = ORIGIN + "/w/" + enc(new URL(resolveAddr(v)).origin) + new URL(resolveAddr(v)).pathname + new URL(resolveAddr(v)).search; }
             else if (e.key === "Escape") renderAddr();
           });
           inp.addEventListener("blur", renderAddr);
