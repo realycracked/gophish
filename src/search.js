@@ -67,11 +67,14 @@ async function bingWeb(q, page) {
     () => fetch(base + "&format=rss", { headers: { "user-agent": UA } }).then(parseRss),
     () => fetch(base + "&setlang=fr&cc=FR&mkt=fr-FR", { headers: HEADERS }).then(parseBingWeb),
   ];
-  const all = await Promise.all(tries.map((t) => t().catch(() => [])));
   let best = [], bestScore = -2;
-  for (const res of all) {
-    const sc = relevance(res, q);
-    if (sc > bestScore) { best = res; bestScore = sc; }
+  // Jusqu'à deux séries d'essais : la seconde seulement si la première est hors sujet.
+  for (let round = 0; round < 2 && bestScore < 0.6; round++) {
+    const all = await Promise.all(tries.map((t) => t().catch(() => [])));
+    for (const res of all) {
+      const sc = relevance(res, q);
+      if (sc > bestScore) { best = res; bestScore = sc; }
+    }
   }
   return best;
 }
@@ -161,7 +164,8 @@ async function bestImages(q, first, count) {
 
 async function bingImages(q, first, count) {
   const u = `https://www.bing.com/images/async?q=${encodeURIComponent(q)}&first=${first}&count=${count}&mmasync=1`;
-  const resp = await fetch(u, { headers: HEADERS });
+  // Seulement le User-Agent : avec Accept, Bing renvoie une réponse vide.
+  const resp = await fetch(u, { headers: { "user-agent": UA } });
   const out = [];
   const rw = new HTMLRewriter().on("a.iusc", {
     element(el) {
