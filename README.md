@@ -25,10 +25,26 @@ pas de mise en veille).
 |---|---|
 | `src/index.js` | Worker : routeur + moteur proxy (fetch, suppression des en-têtes bloquants, réécriture `HTMLRewriter`, cache, rattrapage des navigations). |
 | `src/codec.js` | Encodage URL-safe réversible, partagé serveur/client. |
-| `public/vel-client.js` | Script injecté dans les pages proxifiées (réécriture des requêtes JS + barre de navigation). Servi tel quel, non bundlé. |
-| `public/index.html`, `app.js` | Accueil (recherche YouTube + proxy). |
-| `public/youtube.html`, `youtube.js` | Lecteur YouTube. |
-| `public/style.css` | Thème sombre commun. |
+| `public/__vt/vel-client.js` | Script injecté dans les pages proxifiées (réécriture des requêtes JS + barre de navigation). Servi tel quel, non bundlé. |
+| `public/__vt/index.html`, `app.js` | Accueil (recherche YouTube + proxy). |
+| `public/__vt/youtube.html`, `youtube.js` | Lecteur YouTube. |
+| `public/__vt/style.css` | Thème sombre commun. |
+
+## Comment le proxy sert un site
+
+- **Mode site** : le site ouvert est servi à la racine avec ses vrais chemins
+  (`/play`, `/game/123`…), un cookie retient lequel. Les routes des web apps, les
+  chemins relatifs et les modules JS fonctionnent comme sur le vrai site.
+- **Autres domaines** (CDN, jeu dans une iframe…) : `/w/<origine encodée>/<vrai chemin>`.
+- WebSockets relayés par le Worker ; `postMessage` entre la page et ses iframes
+  corrigé ; cookies `__Host-` pris en charge ; service workers des sites bloqués.
+- L'application elle-même vit sous `/__vt/` (`/` et `/youtube` y mènent).
+- Recherche par défaut : **Bing** (Google, DuckDuckGo, Brave, Startpage et Yahoo
+  bloquent les requêtes venant de Cloudflare).
+
+Limites : un seul site en « mode site » à la fois (deux onglets sur deux sites
+différents se gênent), et les captchas anti-robots (Cloudflare Turnstile…) ne
+passent pas.
 
 ## Déploiement (une seule fois, ~5 min)
 

@@ -1,12 +1,19 @@
-// Vél-Proxy — Worker Cloudflare
-// - sert l'interface statique (via le binding ASSETS)
-// - /p/<code> : va chercher une URL, retire les en-têtes qui bloquent l'affichage,
-//   réécrit les URLs en flux (HTMLRewriter) et renvoie la réponse en streaming.
-// - /__vel/client.js : le script injecté dans les pages proxifiées.
+// Vél·Tube — Worker Cloudflare (proxy + application)
+//
+// Formes d'URL :
+//   /__vt/...            l'application (fichiers statiques) ; "/" et "/youtube" y mènent
+//   /w/<origine>/<chemin> page ou ressource d'un site, en gardant son vrai chemin
+//   /p/<url complète>     ancien format (une seule pièce), toujours accepté
+//   /<chemin>             "mode site" : le site ouvert en dernier (cookie __vt_site)
+//                         est servi à la racine avec ses vrais chemins, pour que ses
+//                         routes, ses chemins relatifs et ses modules JS marchent.
 
 import { encodeUrl, decodeUrl } from "./codec.js";
 
-// En-têtes de réponse à supprimer : ils empêchent l'affichage dans notre contexte.
+const SITE_COOKIE = "__vt_site";
+const APP = "/__vt/";
+
+// En-têtes de réponse qui empêchent l'affichage ou cassent le proxy.
 const STRIP_RESPONSE_HEADERS = [
   "content-security-policy",
   "content-security-policy-report-only",
@@ -19,6 +26,7 @@ const STRIP_RESPONSE_HEADERS = [
   "nel",
   "permissions-policy",
   "clear-site-data",
+  "referrer-policy",
 ];
 
 // En-têtes de requête à ne pas transmettre à la cible.
@@ -28,65 +36,186 @@ const STRIP_REQUEST_HEADERS = [
   "forwarded", "cdn-loop",
 ];
 
+// ---------------------------------------------------------------- URL ----
+
+// /w/<origine encodée>/<chemin>?<requête>#<ancre>
+export function proxyPath(abs) {
+  const u = new URL(abs);
+  return "/w/" + encodeUrl(u.origin) + u.pathname + u.search + u.hash;
+}
+
+// URL réelle derrière un chemin /w/... ou /p/..., ou null.
+export function realFromProxy(pathname, search) {
+  if (pathname.startsWith("/w/")) {
+    const rest = pathname.slice(3);
+    const i = rest.indexOf("/");
+    const code = i < 0 ? rest : rest.slice(0, i);
+    const path = i < 0 ? "/" : rest.slice(i);
+    let origin;
+    try { origin = decodeUrl(code); } catch (e) { return null; }
+    if (!/^https?:\/\/[^/?#\s]+$/i.test(origin)) return null;
+    try { return new URL(origin + path + (search || "")).href; } catch (e) { return null; }
+  }
+  if (pathname.startsWith("/p/")) {
+    let full;
+    try { full = decodeUrl(pathname.slice(3)); } catch (e) { return null; }
+    if (!/^https?:\/\//i.test(full)) return null;
+    let u;
+    try { u = new URL(full); } catch (e) { return null; }
+    if (search) u.search = u.search ? u.search + "&" + search.slice(1) : search;
+    return u.href;
+  }
+  return null;
+}
+
+function withoutVts(search) {
+  if (!search || search.indexOf("__vts") < 0) return search || "";
+  const p = new URLSearchParams(search);
+  p.delete("__vts");
+  const s = p.toString();
+  return s ? "?" + s : "";
+}
+
+function getCookie(request, name) {
+  const all = request.headers.get("cookie") || "";
+  const m = all.match(new RegExp("(?:^|;\\s*)" + name + "=([^;]*)"));
+  return m ? m[1] : null;
+}
+
+// Origine du site en "mode site" (cookie), ou null.
+function siteFromCookie(request) {
+  const v = getCookie(request, SITE_COOKIE);
+  if (!v) return null;
+  try {
+    const o = decodeUrl(v);
+    return /^https?:\/\/[^/?#\s]+$/i.test(o) ? o : null;
+  } catch (e) { return null; }
+}
+
+// URL réelle de la page qui a fait la requête (d'après le Referer), ou null.
+function refererReal(request, url, site) {
+  const ref = request.headers.get("referer");
+  if (!ref) return null;
+  let rp;
+  try { rp = new URL(ref); } catch (e) { return null; }
+  if (rp.origin !== url.origin) return null;
+  if (rp.pathname.startsWith("/w/") || rp.pathname.startsWith("/p/")) return realFromProxy(rp.pathname, rp.search);
+  if (rp.pathname.startsWith(APP) || rp.pathname === "/youtube") return null; // nos pages
+  if (site) {
+    try { return new URL(site + rp.pathname + withoutVts(rp.search)).href; } catch (e) { return null; }
+  }
+  return null;
+}
+
+function isTopNavigation(request) {
+  const dest = request.headers.get("sec-fetch-dest");
+  if (dest) return dest === "document";
+  return request.method === "GET" && (request.headers.get("accept") || "").includes("text/html");
+}
+
+// ------------------------------------------------------------ routage ----
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
     const path = url.pathname;
+    const site = siteFromCookie(request);
 
-    // Script client : fichier statique servi tel quel (avant le rattrapage Referer).
-    if (path === "/vel-client.js") {
-      return env.ASSETS.fetch(request);
+    // Un site ne doit jamais installer de service worker sur notre domaine :
+    // il intercepterait l'application et tous les autres sites.
+    if (request.headers.get("service-worker") === "script") {
+      return new Response("Service workers désactivés par le proxy.", { status: 403 });
     }
 
-    if (path === "/p" || path === "/p/") {
-      return Response.redirect(url.origin + "/", 302);
+    // Fichiers de l'application : jamais détournés vers un site.
+    if (path.startsWith(APP)) return env.ASSETS.fetch(request);
+
+    if (/^\/(w|p)\/?$/.test(path)) return Response.redirect(url.origin + APP, 302);
+
+    if (path.startsWith("/w/") || path.startsWith("/p/")) {
+      const real = realFromProxy(path, url.search);
+      if (!real) {
+        // Chemin relatif collé derrière /p/ ou /w/ par le navigateur (ex. un
+        // module "./chunk.js") : on le résout par rapport à la page d'origine.
+        const base = refererReal(request, url, site);
+        if (base) {
+          try { return redirect(request, url.origin + proxyPath(new URL(path.slice(3) + url.search, base).href)); } catch (e) {}
+        }
+        return errorPage("Adresse illisible", "Le lien est corrompu ou incomplet.", 400, url.origin);
+      }
+      const target = new URL(real);
+      if (request.method === "GET" && isTopNavigation(request) && !isUpgrade(request)) {
+        return enterSite(url, target);
+      }
+      return handleProxy(request, url, target, env, null);
     }
 
-    if (path.startsWith("/p/")) {
-      return handleProxy(request, url);
+    // "/" et "/youtube" : nos pages, sauf quand la requête vient du site ouvert
+    // (lien "accueil" du site) ou porte le marqueur __vts.
+    if (path === "/" || path === "/youtube") {
+      const fromSite = site && (url.searchParams.has("__vts") || refererReal(request, url, site));
+      if (!fromSite) {
+        return env.ASSETS.fetch(new Request(new URL(path === "/" ? APP : APP + "youtube", url), request));
+      }
     }
 
-    // Rattrape les navigations qui ont quitté /p/ (ex. YouTube qui va vers
-    // "/results?...") en les renvoyant vers l'URL réelle proxifiée.
-    const rescued = rescueByReferer(request, url);
-    if (rescued) return rescued;
+    // Chemin racine demandé par une page /w/ (iframe d'un autre domaine…) :
+    // il appartient à ce domaine-là.
+    const ref = request.headers.get("referer");
+    if (ref) {
+      try {
+        const rp = new URL(ref);
+        if (rp.origin === url.origin && (rp.pathname.startsWith("/w/") || rp.pathname.startsWith("/p/"))) {
+          const base = realFromProxy(rp.pathname, rp.search);
+          if (base && (!site || new URL(base).origin !== site)) {
+            return redirect(request, url.origin + proxyPath(new URL(path + url.search, base).href));
+          }
+        }
+      } catch (e) {}
+    }
 
-    // Tout le reste = fichiers statiques de l'interface.
+    // Mode site : le chemin appartient au site ouvert.
+    if (site) {
+      const target = new URL(site + path + withoutVts(url.search));
+      return handleProxy(request, url, target, env, site);
+    }
+
     return env.ASSETS.fetch(request);
   },
 };
 
-// Si une requête arrive hors /p/ mais vient d'une page proxifiée (Referer en /p/),
-// on résout le chemin demandé contre le vrai site et on redirige vers /p/<...>.
-function rescueByReferer(request, url) {
-  if (request.method !== "GET" && request.method !== "HEAD") return null;
-  const ref = request.headers.get("referer");
-  if (!ref) return null;
-  let base;
-  try {
-    const rp = new URL(ref);
-    if (rp.origin !== url.origin) return null;
-    if (!rp.pathname.startsWith("/p/")) return null;
-    base = decodeUrl(rp.pathname.slice(3));
-  } catch (e) {
-    return null;
-  }
-  let abs;
-  try {
-    abs = new URL(url.pathname + url.search + url.hash, base).href;
-  } catch (e) {
-    return null;
-  }
-  return Response.redirect(url.origin + "/p/" + encodeUrl(abs), 302);
+function isUpgrade(request) {
+  return (request.headers.get("upgrade") || "").toLowerCase() === "websocket";
 }
+
+// 302 pour GET/HEAD ; 307 sinon pour garder la méthode et le corps.
+function redirect(request, location) {
+  const s = request.method === "GET" || request.method === "HEAD" ? 302 : 307;
+  return new Response(null, { status: s, headers: { location } });
+}
+
+// Ouvre un site en "mode site" : on retient son origine et on sert la page à
+// la racine avec son vrai chemin.
+function enterSite(url, target) {
+  let loc = target.pathname + target.search;
+  if (target.pathname === "/" || target.pathname === "/youtube") {
+    loc = target.pathname + (target.search ? target.search + "&" : "?") + "__vts=1";
+  }
+  const h = new Headers({ location: url.origin + loc + target.hash });
+  h.append("set-cookie", SITE_COOKIE + "=" + encodeUrl(target.origin) + "; Path=/; Secure; HttpOnly; SameSite=Lax");
+  return new Response(null, { status: 302, headers: h });
+}
+
+// ------------------------------------------------------------- proxy ----
 
 const STATIC_EXT = /\.(?:js|mjs|css|png|jpe?g|gif|webp|avif|svg|ico|bmp|woff2?|ttf|otf|eot|mp3|ogg|wav|json|map)$/i;
 function isStatic(pathname) {
   return STATIC_EXT.test(pathname);
 }
 
-function blockedTarget(target) {
+function blockedTarget(target, env) {
   if (target.protocol !== "http:" && target.protocol !== "https:") return true;
+  if (env && env.ALLOW_LOCAL === "1") return false; // tests locaux uniquement
   const h = target.hostname.toLowerCase();
   if (h === "localhost" || h.endsWith(".localhost") || h === "0.0.0.0") return true;
   if (/^127\./.test(h) || /^10\./.test(h) || /^192\.168\./.test(h)) return true;
@@ -109,9 +238,6 @@ const REDLIB_INSTANCES = [
 ];
 function isRedlib(host) { return REDLIB_INSTANCES.includes(host); }
 
-// Style "ancien Reddit" (old.reddit) injecté dans les pages Redlib : fond
-// gris-bleu clair, panneaux blancs, liens bleus, Verdana compact, bordures
-// carrées. Redlib gère son apparence via des variables CSS → on les surcharge.
 const REDLIB_STYLE =
   '<style id="vt-redlib">' +
   ':root,body{' +
@@ -143,41 +269,39 @@ function redditTargets(target) {
   });
 }
 
-function buildRequestHeaders(request, target) {
+function buildRequestHeaders(request, target, url, site) {
   const headers = new Headers();
   for (const [k, v] of request.headers) {
     if (!STRIP_REQUEST_HEADERS.includes(k.toLowerCase())) headers.set(k, v);
   }
   headers.set("host", target.host);
-  const ref = request.headers.get("referer");
-  if (ref) {
-    try {
-      const rp = new URL(ref);
-      if (rp.pathname.startsWith("/p/")) headers.set("referer", decodeUrl(rp.pathname.slice(3)));
-      else headers.delete("referer");
-    } catch (e) { headers.delete("referer"); }
+  // Cookies : on retire le nôtre et on rend leur nom aux cookies "__Host-".
+  const cookie = request.headers.get("cookie");
+  if (cookie) {
+    const kept = cookie.split(/;\s*/).filter((c) => c && !c.startsWith(SITE_COOKIE + "="))
+      .map((c) => c.replace(/^vtH-/, "__Host-"));
+    if (kept.length) headers.set("cookie", kept.join("; ")); else headers.delete("cookie");
   }
-  headers.set("origin", target.origin);
+  const realRef = refererReal(request, url, site);
+  if (realRef) headers.set("referer", realRef); else headers.delete("referer");
+  if (request.headers.has("origin")) headers.set("origin", target.origin);
   return headers;
 }
 
-async function handleProxy(request, url) {
-  const code = url.pathname.slice(3);
-  let target;
-  try {
-    target = new URL(decodeUrl(code));
-  } catch (e) {
-    return errorPage("Adresse illisible", "Le lien est corrompu ou incomplet.", 400, url.origin);
-  }
-
-  // Reporte la query de l'URL proxy sur la cible (ex. formulaire GET réécrit
-  // vers /p/<...> puis ?search_query=... ajouté par le navigateur).
-  if (url.search) {
-    target.search = target.search ? target.search + "&" + url.search.slice(1) : url.search;
-  }
-
-  if (blockedTarget(target)) {
+async function handleProxy(request, url, target, env, site) {
+  if (blockedTarget(target, env)) {
     return errorPage("Adresse refusée", "Cette destination n'est pas autorisée.", 403, url.origin);
+  }
+  target.search = withoutVts(target.search);
+
+  // WebSocket : on transmet la demande de connexion et on renvoie la réponse
+  // du site telle quelle (Cloudflare relaie ensuite les messages).
+  if (isUpgrade(request)) {
+    try {
+      return await fetch(target.href, { headers: buildRequestHeaders(request, target, url, site) });
+    } catch (e) {
+      return new Response("WebSocket injoignable", { status: 502 });
+    }
   }
 
   // Cible(s) : pour Reddit, liste d'instances Redlib à essayer dans l'ordre.
@@ -187,10 +311,10 @@ async function handleProxy(request, url) {
   let upstream = null;
   for (let i = 0; i < candidates.length; i++) {
     const cand = candidates[i];
-    if (blockedTarget(cand)) continue;
+    if (blockedTarget(cand, env)) continue;
     const init = {
       method: request.method,
-      headers: buildRequestHeaders(request, cand),
+      headers: buildRequestHeaders(request, cand, url, site),
       redirect: "manual",
       body: isGet ? undefined : request.body,
     };
@@ -209,22 +333,24 @@ async function handleProxy(request, url) {
     return errorPage("Site injoignable", "Impossible de contacter " + target.hostname + ".", 502, url.origin);
   }
 
+  // En mode site, l'origine "maison" est celle réellement servie (Redlib pour Reddit).
+  const home = site ? target.origin : null;
+  const scope = home ? null : "/w/" + encodeUrl(target.origin);
+
   // Redirections : on réécrit Location pour rester dans le proxy.
   if (upstream.status >= 300 && upstream.status < 400 && upstream.headers.has("location")) {
-    const loc = upstream.headers.get("location");
-    let abs;
-    try { abs = new URL(loc, target.href).href; } catch (e) { abs = null; }
     const out = new Headers();
-    if (abs) out.set("location", url.origin + "/p/" + encodeUrl(abs));
-    copySetCookies(upstream, out, url);
+    const loc = proxify(upstream.headers.get("location"), target, url.origin, home);
+    if (loc) out.set("location", loc);
+    copySetCookies(upstream, out, scope);
     return new Response(null, { status: upstream.status, headers: out });
   }
 
   const ct = (upstream.headers.get("content-type") || "").toLowerCase();
-  const outHeaders = buildResponseHeaders(upstream, url);
+  const outHeaders = buildResponseHeaders(upstream, scope);
 
   if (ct.includes("text/html")) {
-    const rewritten = rewriteHtml(upstream, target, url.origin);
+    const rewritten = rewriteHtml(upstream, target, url.origin, home);
     outHeaders.delete("content-length");
     outHeaders.delete("content-encoding");
     return new Response(rewritten.body, { status: upstream.status, headers: outHeaders });
@@ -234,24 +360,27 @@ async function handleProxy(request, url) {
     const css = await upstream.text();
     outHeaders.delete("content-length");
     outHeaders.delete("content-encoding");
-    return new Response(rewriteCss(css, target, url.origin), { status: upstream.status, headers: outHeaders });
+    return new Response(rewriteCss(css, target, url.origin, home), { status: upstream.status, headers: outHeaders });
   }
 
   // Tout le reste (images, vidéos, JS, polices…) : flux direct, rapide.
   return new Response(upstream.body, { status: upstream.status, headers: outHeaders });
 }
 
-function buildResponseHeaders(upstream, url) {
+function buildResponseHeaders(upstream, scope) {
   const out = new Headers(upstream.headers);
   for (const h of STRIP_RESPONSE_HEADERS) out.delete(h);
   out.delete("set-cookie");
-  copySetCookies(upstream, out, url);
+  copySetCookies(upstream, out, scope);
   out.set("access-control-allow-origin", "*");
   return out;
 }
 
-// Réécrit les cookies pour qu'ils collent à notre domaine (Domain retiré, Path remis à la racine).
-function copySetCookies(upstream, out, url) {
+// Cookies du site : sans Domain (ils doivent coller à notre domaine). En mode
+// /w/, leur chemin est rangé sous /w/<origine>/ pour isoler chaque site.
+// Les cookies "__Host-" exigent Path=/ : on les renomme "vtH-" (et inversement
+// à l'envoi).
+function copySetCookies(upstream, out, scope) {
   let cookies = [];
   if (typeof upstream.headers.getSetCookie === "function") {
     cookies = upstream.headers.getSetCookie();
@@ -260,47 +389,54 @@ function copySetCookies(upstream, out, url) {
     if (raw) cookies = [raw];
   }
   for (const c of cookies) {
-    const cleaned = c
-      .replace(/;\s*domain=[^;]*/gi, "")
-      .replace(/;\s*secure/gi, "")
+    let v = c.replace(/;\s*domain=[^;]*/gi, "").replace(/;\s*partitioned/gi, "")
       .replace(/;\s*samesite=[^;]*/gi, "; SameSite=Lax");
-    out.append("set-cookie", cleaned);
+    if (/^\s*__Host-/i.test(v)) v = v.replace(/^\s*__Host-/i, "vtH-");
+    if (!/;\s*secure/i.test(v)) v += "; Secure";
+    if (scope) {
+      if (/;\s*path=/i.test(v)) v = v.replace(/;\s*path=([^;]*)/i, (m, p) => "; Path=" + scope + (p.trim().startsWith("/") ? p.trim() : "/" + p.trim()));
+      else v += "; Path=" + scope + "/";
+    }
+    out.append("set-cookie", v);
   }
 }
 
-export function proxify(value, target, origin) {
+// Réécrit une URL trouvée dans une page. "home" = origine servie en mode site :
+// ses URLs deviennent des chemins racine ; les autres passent par /w/.
+export function proxify(value, target, origin, home) {
   if (value == null) return value;
   const v = String(value).trim();
   if (!v) return value;
   if (/^(data|blob|javascript|about|mailto|tel|sms|ws|wss):/i.test(v)) return value;
   if (v.charAt(0) === "#") return value;
   let abs;
-  try { abs = new URL(v, target.href).href; } catch (e) { return value; }
-  return origin + "/p/" + encodeUrl(abs);
+  try { abs = new URL(v, target.href); } catch (e) { return value; }
+  if (abs.protocol !== "http:" && abs.protocol !== "https:") return value;
+  if (home && abs.origin === home) return abs.pathname + abs.search + abs.hash;
+  return origin + proxyPath(abs.href);
 }
 
-function proxifySrcset(value, target, origin) {
+function proxifySrcset(value, target, origin, home) {
   try {
     return value.split(",").map((part) => {
       const seg = part.trim();
       if (!seg) return part;
       const sp = seg.split(/\s+/);
-      sp[0] = proxify(sp[0], target, origin);
+      sp[0] = proxify(sp[0], target, origin, home);
       return sp.join(" ");
     }).join(", ");
   } catch (e) { return value; }
 }
 
-export function rewriteCss(css, target, origin) {
+export function rewriteCss(css, target, origin, home) {
   return css.replace(/url\(\s*(['"]?)([^'")]+)\1\s*\)/gi, (m, q, u) => {
-    const p = proxify(u, target, origin);
-    return "url(" + q + p + q + ")";
+    return "url(" + q + proxify(u, target, origin, home) + q + ")";
   }).replace(/@import\s+(['"])([^'"]+)\1/gi, (m, q, u) => {
-    return "@import " + q + proxify(u, target, origin) + q;
+    return "@import " + q + proxify(u, target, origin, home) + q;
   });
 }
 
-function rewriteHtml(upstream, target, origin) {
+function rewriteHtml(upstream, target, origin, home) {
   const attrRules = [
     ["[href]", "href"],
     ["[src]", "src"],
@@ -311,13 +447,19 @@ function rewriteHtml(upstream, target, origin) {
     ["[background]", "background"],
   ];
 
+  // Script client injecté une seule fois, le plus tôt possible.
+  let injected = false;
+  const snippet = "<script>window.__VEL=" + JSON.stringify({ base: target.href, home: home || "" }) + ";<\/script>" +
+    '<script src="' + APP + 'vel-client.js"><\/script>';
+  const inject = (el) => { if (!injected) { injected = true; el.prepend(snippet, { html: true }); } };
+
   let rewriter = new HTMLRewriter();
 
   for (const [sel, attr] of attrRules) {
     rewriter = rewriter.on(sel, {
       element(el) {
         const val = el.getAttribute(attr);
-        if (val != null) el.setAttribute(attr, proxify(val, target, origin));
+        if (val != null) el.setAttribute(attr, proxify(val, target, origin, home));
         if (el.hasAttribute("integrity")) el.removeAttribute("integrity");
       },
     });
@@ -327,33 +469,34 @@ function rewriteHtml(upstream, target, origin) {
     .on("[srcset]", {
       element(el) {
         const val = el.getAttribute("srcset");
-        if (val != null) el.setAttribute("srcset", proxifySrcset(val, target, origin));
+        if (val != null) el.setAttribute("srcset", proxifySrcset(val, target, origin, home));
       },
     })
     .on("[style]", {
       element(el) {
         const val = el.getAttribute("style");
-        if (val != null) el.setAttribute("style", rewriteCss(val, target, origin));
+        if (val != null) el.setAttribute("style", rewriteCss(val, target, origin, home));
       },
     })
-    .on("base", { element(el) { el.remove(); } })
     .on('meta[http-equiv="Content-Security-Policy" i]', { element(el) { el.remove(); } })
+    .on('meta[name="referrer" i]', { element(el) { el.remove(); } })
     .on('meta[http-equiv="refresh" i]', {
       element(el) {
         const c = el.getAttribute("content");
         if (c) {
-          const rewritten = c.replace(/url\s*=\s*(.+)$/i, (m, u) => "url=" + proxify(u.trim(), target, origin));
+          const rewritten = c.replace(/url\s*=\s*(.+)$/i, (m, u) => "url=" + proxify(u.trim(), target, origin, home));
           el.setAttribute("content", rewritten);
         }
       },
     })
     .on("head", {
       element(el) {
-        const cfg = '<script>window.__VEL={base:' + JSON.stringify(target.href) + "};<\/script>";
-        el.prepend(cfg + '<script src="/vel-client.js"><\/script>', { html: true });
+        inject(el);
         if (isRedlib(target.hostname)) el.append(REDLIB_STYLE, { html: true });
       },
-    });
+    })
+    // Pages sans <head> (petits jeux HTML…) : on injecte au début de <body>.
+    .on("body", { element(el) { inject(el); } });
 
   // Réécrit aussi le CSS dans les balises <style>.
   let styleBuf = "";
@@ -361,7 +504,7 @@ function rewriteHtml(upstream, target, origin) {
     text(t) {
       styleBuf += t.text;
       if (t.lastInTextNode) {
-        t.replace(rewriteCss(styleBuf, target, origin), { html: false });
+        t.replace(rewriteCss(styleBuf, target, origin, home), { html: false });
         styleBuf = "";
       } else {
         t.remove();
@@ -386,6 +529,7 @@ h1{font-size:1.4rem;margin:0 0 8px}p{color:#a7a8c6;margin:0 0 22px;line-height:1
 a{display:inline-block;background:linear-gradient(135deg,#7c5cff,#38a8ff);color:#fff;text-decoration:none;
 font-weight:600;padding:11px 22px;border-radius:11px}
 </style></head><body><div class="card"><div class="badge"></div>
-<h1>${title}</h1><p>${msg}</p><a href="${origin}/">Retour à l'accueil</a></div></body></html>`;
+<h1>${title}</h1><p>${msg}</p><a href="${origin}/__vt/">Retour à l'accueil</a></div></body></html>`;
   return new Response(html, { status, headers: { "content-type": "text/html; charset=utf-8" } });
 }
+

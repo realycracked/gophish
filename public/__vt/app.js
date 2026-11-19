@@ -9,15 +9,18 @@
     return btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
   }
 
-  function openProxy(url) { window.location.href = "/p/" + enc(url); }
-  function openYouTube(q) { window.location.href = "/youtube?q=" + encodeURIComponent(q); }
+  // /w/<origine>/<chemin> : le proxy garde le vrai chemin du site.
+  function toProxy(url) { var u = new URL(url); return "/w/" + enc(u.origin) + u.pathname + u.search + u.hash; }
+  function openProxy(url) { window.location.href = toProxy(url); }
+  function openYouTube(q) { window.location.href = "/__vt/youtube?q=" + encodeURIComponent(q); }
 
   function resolveQuery(raw) {
     var q = raw.trim();
     if (!q) return null;
     if (/^https?:\/\//i.test(q)) return q;
     if (/^[^\s.]+\.[^\s]{2,}$/.test(q) && !/\s/.test(q)) return "https://" + q;
-    return "https://duckduckgo.com/?q=" + encodeURIComponent(q);
+    // Bing : le seul grand moteur qui accepte les recherches venant de Cloudflare.
+    return "https://www.bing.com/search?q=" + encodeURIComponent(q) + "&setlang=fr";
   }
 
   // Recherche YouTube
@@ -47,11 +50,15 @@
   // ---------- Sites favoris perso (gardés sur l'appareil) ----------
   var DEFAULT_SITES = [
     { name: "Reddit", url: "https://www.reddit.com" },
-    { name: "DuckDuckGo", url: "https://duckduckgo.com" },
+    { name: "Bing", url: "https://www.bing.com" },
     { name: "Wikipédia", url: "https://www.wikipedia.org" }
   ];
   function loadSites() {
-    try { var s = JSON.parse(localStorage.getItem("vt_sites")); if (Array.isArray(s)) return s; } catch (e) {}
+    try {
+      var s = JSON.parse(localStorage.getItem("vt_sites"));
+      // DuckDuckGo refuse les recherches via Cloudflare : on le remplace par Bing.
+      if (Array.isArray(s)) return s.map(function (x) { return /duckduckgo\.com/i.test(x.url) ? { name: "Bing", url: "https://www.bing.com" } : x; });
+    } catch (e) {}
     return DEFAULT_SITES.slice();
   }
   function saveSites() { try { localStorage.setItem("vt_sites", JSON.stringify(sites)); } catch (e) {} }
@@ -89,7 +96,7 @@
   form.addEventListener("submit", function (e) {
     e.preventDefault();
     var url = resolveQuery(urlIn.value);
-    if (!url || /duckduckgo\.com\/\?q=/.test(url) && !/^https?:/i.test(urlIn.value.trim())) {
+    if (!url || /bing\.com\/search\?q=/.test(url) && !/^https?:/i.test(urlIn.value.trim())) {
       urlIn.focus(); urlIn.setCustomValidity("Entre une adresse, par ex. twitch.tv"); urlIn.reportValidity();
       return;
     }

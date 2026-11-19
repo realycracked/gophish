@@ -93,7 +93,7 @@
   // ---------- Lecteur : mode compatible (iframe via proxy) ----------
   function loadProxyVideo(id, start) {
     var u = "https://www.youtube-nocookie.com/embed/" + id + "?autoplay=1&rel=0&modestbranding=1&playsinline=1" + (start ? "&start=" + Math.floor(start) : "");
-    $("player").innerHTML = '<iframe src="/p/' + enc(u) + '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="origin"></iframe>';
+    $("player").innerHTML = '<iframe src="/w/' + enc("https://www.youtube-nocookie.com") + u.slice("https://www.youtube-nocookie.com".length) + '" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" allowfullscreen referrerpolicy="origin"></iframe>';
   }
 
   function loadVideo(id, start) {
