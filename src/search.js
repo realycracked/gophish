@@ -40,30 +40,50 @@ function json(obj, status = 200, maxAge = 0) {
 function words(q) {
   return q.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").split(/[^a-z0-9]+/).filter((w) => w.length > 2);
 }
+// Part des mots cherchés présents dans chaque résultat, en moyenne.
 function relevance(results, q) {
   const ws = words(q);
-  if (!ws.length || !results.length) return 1;
-  const hit = results.filter((r) => {
-    const t = (r.title + " " + r.snippet + " " + r.url).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
-    return ws.every((w) => t.includes(w));
-  }).length;
-  return hit / results.length;
+  if (!results.length) return -1;
+  if (!ws.length) return 1;
+  let sum = 0;
+  for (const r of results) {
+    const t = (r.title + " " + r.snippet + " " + r.url).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+    sum += ws.filter((w) => t.includes(w.replace(/s$/, ""))).length / ws.length;
+  }
+  return sum / results.length + Math.min(results.length, 10) / 100;
 }
 
 async function bingWeb(q, page) {
-  // Bing répond parfois « à côté » aux serveurs Cloudflare (ex. « claude monet »
-  // → que des pages claude.ai) : on garde la réponse la plus pertinente.
-  const variants = ["setlang=fr&cc=FR&mkt=fr-FR", "setlang=fr", "mkt=fr-FR&form=QBLH"];
-  let best = [], bestScore = -1;
-  for (const v of variants) {
-    const u = `https://www.bing.com/search?q=${encodeURIComponent(q)}&${v}${page ? "&first=" + (page * 10 + 1) : ""}`;
-    let res;
-    try { res = await parseBingWeb(await fetch(u, { headers: HEADERS })); } catch { continue; }
-    const score = relevance(res, q);
-    if (score > bestScore) { best = res; bestScore = score; }
-    if (score >= 0.5 && res.length >= 5) break;
+  // Bing répond parfois « à côté » (ou rien) aux serveurs Cloudflare : on
+  // interroge trois variantes en parallèle (flux RSS, plus fiable, et page HTML)
+  // et on garde la plus pertinente.
+  const base = "https://www.bing.com/search?q=" + encodeURIComponent(q) + (page ? "&first=" + (page * 10 + 1) : "");
+  const tries = [
+    () => fetch(base + "&format=rss&setlang=fr&cc=FR", { headers: HEADERS }).then(parseRss),
+    () => fetch(base + "&format=rss", { headers: HEADERS }).then(parseRss),
+    () => fetch(base + "&setlang=fr&cc=FR&mkt=fr-FR", { headers: HEADERS }).then(parseBingWeb),
+  ];
+  const all = await Promise.all(tries.map((t) => t().catch(() => [])));
+  let best = [], bestScore = -2;
+  for (const res of all) {
+    const sc = relevance(res, q);
+    if (sc > bestScore) { best = res; bestScore = sc; }
   }
   return best;
+}
+
+async function parseRss(resp) {
+  const xml = await resp.text();
+  const out = [];
+  for (const m of xml.matchAll(/<item>([\s\S]*?)<\/item>/g)) {
+    const get = (tag) => { const x = m[1].match(new RegExp("<" + tag + ">([\\s\\S]*?)</" + tag + ">")); return x ? decode(x[1].replace(/<!\[CDATA\[|\]\]>/g, "")) : ""; };
+    const url = get("link").trim();
+    if (!/^https?:\/\//.test(url)) continue;
+    let site = "";
+    try { site = new URL(url).hostname.replace(/^www\./, ""); } catch {}
+    out.push({ url, title: get("title").trim(), snippet: get("description").replace(/\s+/g, " ").trim(), site });
+  }
+  return out.slice(0, 12);
 }
 
 async function parseBingWeb(resp) {
@@ -129,7 +149,7 @@ function decode(s) {
 
 // ---------- Bing images ----------
 async function bingImages(q, first, count) {
-  const u = `https://www.bing.com/images/async?q=${encodeURIComponent(q)}&first=${first}&count=${count}&mmasync=1&setlang=fr&mkt=fr-FR`;
+  const u = `https://www.bing.com/images/async?q=${encodeURIComponent(q)}&first=${first}&count=${count}&mmasync=1`;
   const resp = await fetch(u, { headers: HEADERS });
   const out = [];
   const rw = new HTMLRewriter().on("a.iusc", {
