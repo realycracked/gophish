@@ -27,6 +27,7 @@ const STRIP_RESPONSE_HEADERS = [
   "permissions-policy",
   "clear-site-data",
   "referrer-policy",
+  "link", // préchargements (preload) vers les vraies adresses, hors proxy
 ];
 
 // En-têtes de requête à ne pas transmettre à la cible.
