@@ -148,6 +148,8 @@ export default {
         return errorPage("Adresse illisible", "Le lien est corrompu ou incomplet.", 400, url.origin);
       }
       const target = new URL(real);
+      // /w/<notre propre adresse>/... : on revient simplement sur ce chemin.
+      if (target.host === url.host) return redirect(request, url.origin + target.pathname + target.search);
       if (request.method === "GET" && isTopNavigation(request) && !isUpgrade(request)) {
         return enterSite(url, target);
       }
@@ -447,6 +449,9 @@ export function proxify(value, target, origin, home) {
   try { abs = new URL(v, target.href); } catch (e) { return value; }
   if (abs.protocol !== "http:" && abs.protocol !== "https:") return value;
   if (home && abs.origin === home) return abs.pathname + abs.search + abs.hash;
+  // Déjà une adresse du proxy (ex. un anti-robot qui renvoie vers location.href) :
+  // on la garde telle quelle, sinon le proxy se proxifierait lui-même.
+  if (abs.origin === origin) return abs.pathname + abs.search + abs.hash;
   return origin + proxyPath(abs.href);
 }
 
