@@ -1,6 +1,8 @@
-// Accueil Vél·Tube : recherche YouTube (vers le lecteur) + ouverture d'un site via le proxy.
+// Accueil Vél·Tube : écran façon téléphone (horloge, recherche, applis, dock).
 (function () {
   "use strict";
+
+  function $(id) { return document.getElementById(id); }
 
   function enc(url) {
     var bytes = new TextEncoder().encode(url);
@@ -23,31 +25,81 @@
     return "https://www.bing.com/search?q=" + encodeURIComponent(q) + "&setlang=fr";
   }
 
-  // Recherche YouTube
-  var yt = document.getElementById("yt");
-  var ytInput = document.getElementById("yt-input");
-  yt.addEventListener("submit", function (e) {
-    e.preventDefault();
-    var q = ytInput.value.trim();
-    if (q) openYouTube(q);
-  });
-  document.querySelectorAll("[data-yt]").forEach(function (el) {
-    el.addEventListener("click", function () { openYouTube(el.getAttribute("data-yt")); });
-  });
+  // Adresse tapée pour un raccourci -> URL, ou null. "twitch" tout court -> twitch.com.
+  function siteUrl(raw) {
+    var q = raw.trim();
+    if (/^[a-z0-9-]+$/i.test(q)) q += ".com";
+    if (/^https?:\/\//i.test(q)) { try { return new URL(q).href; } catch (e) { return null; } }
+    if (/^[^\s.]+\.[^\s]{2,}$/.test(q)) { try { return new URL("https://" + q).href; } catch (e) { return null; } }
+    return null;
+  }
+  function defaultName(url) {
+    try {
+      var h = new URL(url).hostname.replace(/^www\./, "").split(".")[0];
+      return h.charAt(0).toUpperCase() + h.slice(1);
+    } catch (e) { return "Site"; }
+  }
+  function colorOf(name) {
+    var h = 0;
+    for (var i = 0; i < name.length; i++) h = (h * 31 + name.charCodeAt(i)) >>> 0;
+    return "c" + (h % 7);
+  }
 
-  // Proxy : ouvrir un site
-  var omni = document.getElementById("omni");
-  var omniInput = document.getElementById("omni-input");
-  omni.addEventListener("submit", function (e) {
+  function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function read(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+
+  var toastTimer;
+  function toast(msg) {
+    var t = $("toast"); t.textContent = msg; t.classList.add("show");
+    clearTimeout(toastTimer); toastTimer = setTimeout(function () { t.classList.remove("show"); }, 1600);
+  }
+
+  // ---------- Icône : vrai logo du site, sinon sa première lettre ----------
+  function fillIcon(el, name, url) {
+    el.className = "ico " + colorOf(name);
+    el.textContent = name.charAt(0).toUpperCase();
+    if (!url) return;
+    var img = new Image();
+    img.alt = "";
+    img.decoding = "async";
+    img.onload = function () {
+      if (img.naturalWidth < 16) return; // image vide : on garde la lettre
+      el.className = "ico logo"; el.textContent = ""; el.appendChild(img);
+    };
+    img.src = "/__vt/icon?u=" + encodeURIComponent(url);
+  }
+
+  // ---------- Horloge ----------
+  function tick() {
+    var d = new Date();
+    $("clk").textContent = d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" });
+    $("date").textContent = d.toLocaleDateString("fr-FR", { weekday: "long", day: "numeric", month: "long" });
+  }
+  tick(); setInterval(tick, 5000);
+
+  // ---------- Recherche : YouTube ou Web ----------
+  var mode = read("vt_mode") === "web" ? "web" : "yt";
+  var q = $("q");
+  function setMode(m) {
+    mode = m; store("vt_mode", m);
+    document.querySelectorAll(".seg button").forEach(function (b) { b.classList.toggle("on", b.getAttribute("data-m") === m); });
+    q.placeholder = m === "yt" ? "Rechercher une vidéo…" : "Site ou recherche…";
+    q.setAttribute("inputmode", m === "yt" ? "search" : "url");
+  }
+  document.querySelectorAll(".seg button").forEach(function (b) {
+    b.addEventListener("click", function () { setMode(b.getAttribute("data-m")); q.focus(); });
+  });
+  setMode(mode);
+  $("search").addEventListener("submit", function (e) {
     e.preventDefault();
-    var url = resolveQuery(omniInput.value);
+    var v = q.value.trim();
+    if (!v) return;
+    if (mode === "yt") return openYouTube(v);
+    var url = resolveQuery(v);
     if (url) openProxy(url);
   });
-  document.querySelectorAll("[data-go]").forEach(function (el) {
-    el.addEventListener("click", function () { openProxy(el.getAttribute("data-go")); });
-  });
 
-  // ---------- Sites favoris perso (gardés sur l'appareil) ----------
+  // ---------- Applis (gardées sur l'appareil) ----------
   var DEFAULT_SITES = [
     { name: "Reddit", url: "https://www.reddit.com" },
     { name: "Bing", url: "https://www.bing.com" },
@@ -55,62 +107,123 @@
   ];
   function loadSites() {
     try {
-      var s = JSON.parse(localStorage.getItem("vt_sites"));
+      var s = JSON.parse(read("vt_sites"));
       // DuckDuckGo refuse les recherches via Cloudflare : on le remplace par Bing.
       if (Array.isArray(s)) return s.map(function (x) { return /duckduckgo\.com/i.test(x.url) ? { name: "Bing", url: "https://www.bing.com" } : x; });
     } catch (e) {}
     return DEFAULT_SITES.slice();
   }
-  function saveSites() { try { localStorage.setItem("vt_sites", JSON.stringify(sites)); } catch (e) {} }
+  function saveSites() { store("vt_sites", JSON.stringify(sites)); }
 
   var sites = loadSites();
-  var editing = false;
-  var box = document.getElementById("sites");
-  var form = document.getElementById("site-form");
-  var nameIn = document.getElementById("site-name");
-  var urlIn = document.getElementById("site-url");
+  var screen = $("screen"), grid = $("grid");
+  function editing() { return screen.classList.contains("editing"); }
+  function setEditing(on) { screen.classList.toggle("editing", on); }
 
-  function chip(label, cls, onClick) {
-    var b = document.createElement("button");
-    b.type = "button"; b.className = "chip " + (cls || ""); b.textContent = label;
-    b.addEventListener("click", onClick);
-    box.appendChild(b);
-    return b;
+  function appEl(tag, name) {
+    var el = document.createElement(tag);
+    el.className = "app";
+    var ico = document.createElement("span"); ico.className = "ico";
+    var lbl = document.createElement("span"); lbl.className = "lbl"; lbl.textContent = name;
+    el.appendChild(ico); el.appendChild(lbl);
+    return el;
   }
-  function renderSites() {
-    box.innerHTML = "";
+
+  function render() {
+    grid.innerHTML = "";
+
+    var yt = appEl("a", "YouTube");
+    yt.href = "/__vt/youtube";
+    yt.firstChild.className = "ico ico-yt";
+    grid.appendChild(yt);
+
     sites.forEach(function (s, i) {
-      var b = chip(editing ? s.name + "  ✕" : s.name, editing ? "chip-del" : "", function () {
-        if (editing) { sites.splice(i, 1); saveSites(); renderSites(); }
-        else openProxy(s.url);
+      var b = appEl("a", s.name);
+      b.href = toProxy(s.url);
+      b.title = s.url;
+      b.setAttribute("data-i", i);
+      fillIcon(b.firstChild, s.name, s.url);
+      var del = document.createElement("span"); del.className = "del"; del.textContent = "✕";
+      del.setAttribute("aria-hidden", "true");
+      b.appendChild(del);
+
+      // Appui long : mode édition.
+      var timer = null, longPressed = false;
+      b.addEventListener("pointerdown", function () {
+        longPressed = false;
+        timer = setTimeout(function () { longPressed = true; setEditing(true); if (navigator.vibrate) navigator.vibrate(15); }, 480);
       });
-      b.title = editing ? "Retirer " + s.name : s.url;
+      ["pointerup", "pointerleave", "pointercancel"].forEach(function (ev) {
+        b.addEventListener(ev, function () { clearTimeout(timer); });
+      });
+      b.addEventListener("contextmenu", function (e) { e.preventDefault(); });
+      b.addEventListener("click", function (e) {
+        if (longPressed) { e.preventDefault(); longPressed = false; return; }
+        if (editing()) {
+          e.preventDefault();
+          sites.splice(i, 1); saveSites(); render();
+          toast(s.name + " retiré");
+        }
+      });
+      grid.appendChild(b);
     });
-    if (!editing) chip("+ Ajouter", "chip-ghost", function () {
-      form.hidden = false; urlIn.focus();
-      try { form.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
-    });
-    if (sites.length) chip(editing ? "Terminé" : "Modifier", "chip-ghost", function () {
-      editing = !editing; form.hidden = true; renderSites();
-    });
+
+    var add = appEl("button", "Ajouter");
+    add.type = "button";
+    add.firstChild.className = "ico add";
+    add.firstChild.textContent = "+";
+    add.addEventListener("click", openSheet);
+    grid.appendChild(add);
   }
-  form.addEventListener("submit", function (e) {
-    e.preventDefault();
-    var raw = urlIn.value.trim();
-    // "twitch" tout court -> twitch.com ; sinon adresse normale.
-    if (/^[a-z0-9-]+$/i.test(raw)) raw += ".com";
-    var url = raw && resolveQuery(raw);
-    if (!url || /bing\.com\/search\?q=/.test(url) && !/^https?:/i.test(raw)) {
-      urlIn.focus(); urlIn.setCustomValidity("Entre une adresse, par ex. twitch.tv"); urlIn.reportValidity();
-      return;
-    }
-    var name = nameIn.value.trim();
-    if (!name) { try { name = new URL(url).hostname.replace(/^www\./, ""); } catch (err) { name = url; } }
-    sites.push({ name: name.slice(0, 30), url: url });
-    saveSites();
-    nameIn.value = ""; urlIn.value = ""; form.hidden = true;
-    renderSites();
+
+  $("done").addEventListener("click", function () { setEditing(false); });
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") { setEditing(false); closeSheet(); }
   });
-  urlIn.addEventListener("input", function () { urlIn.setCustomValidity(""); });
-  renderSites();
+
+  // ---------- Feuille d'ajout, avec aperçu du logo ----------
+  var au = $("au"), an = $("an"), pv = $("pv"), pvn = $("pvn"), err = $("err");
+  var previewTimer;
+  function updatePreview() {
+    var url = siteUrl(au.value);
+    var name = an.value.trim() || (url ? defaultName(url) : "Nouveau site");
+    pvn.textContent = name;
+    err.textContent = "";
+    pv.innerHTML = "";
+    fillIcon(pv, name, null);
+    clearTimeout(previewTimer);
+    if (url) previewTimer = setTimeout(function () { fillIcon(pv, name, url); }, 350);
+  }
+  au.addEventListener("input", updatePreview);
+  an.addEventListener("input", updatePreview);
+
+  function openSheet() {
+    setEditing(false);
+    au.value = ""; an.value = ""; updatePreview();
+    screen.classList.add("open");
+    setTimeout(function () { au.focus(); }, 60);
+  }
+  function closeSheet() { screen.classList.remove("open"); }
+  $("veil").addEventListener("click", closeSheet);
+
+  $("sheet").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var url = siteUrl(au.value);
+    if (!url) { err.textContent = "Entre une adresse, par ex. twitch.tv"; au.focus(); return; }
+    var name = (an.value.trim() || defaultName(url)).slice(0, 20);
+    sites.push({ name: name, url: url });
+    saveSites();
+    closeSheet();
+    render();
+    toast(name + " ajouté");
+  });
+
+  // ---------- Thème ----------
+  var NAMES = { indigo: "Indigo", oled: "OLED", clair: "Clair" };
+  $("theme-btn").addEventListener("click", function () {
+    // theme.js change le thème au même clic ; on affiche le nouveau nom juste après.
+    setTimeout(function () { if (window.__vtTheme) toast("Thème " + NAMES[window.__vtTheme.get()]); }, 0);
+  });
+
+  render();
 })();

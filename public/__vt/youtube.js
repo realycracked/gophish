@@ -408,7 +408,7 @@
     var params = new URLSearchParams(location.search);
     if (params.get("v")) { var id0 = idFromUrl(params.get("v")) || params.get("v"); if (id0) playSingle(id0); }
     else if (params.get("q")) { input.value = params.get("q"); search(params.get("q")); }
-    else showView("trend");
+    else showView(/^(trend|hist|fav|later)$/.test(params.get("view") || "") ? params.get("view") : "trend");
     refreshSaveUI();
   }
 
