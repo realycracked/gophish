@@ -191,15 +191,48 @@
       } catch (e) {}
       return "";
     }
+    // Envoi : l'appel natif doit partir du cadre de l'expéditeur, sinon le
+    // navigateur donne la page destinataire comme event.source et les réponses
+    // via event.source.postMessage() se perdent. Chaque cadre expose donc son
+    // postMessage natif et une fonction d'envoi exécutée dans son propre cadre.
     var _pm = window.postMessage;
+    window.__vtNativePM = _pm;
+    window.__vtSend = function (target, box, opts, transfer) {
+      var native = target.__vtNativePM || _pm;
+      if (opts) return Function.prototype.call.call(native, target, box, opts);
+      return transfer === undefined ? Function.prototype.call.call(native, target, box, "*")
+                                    : Function.prototype.call.call(native, target, box, "*", transfer);
+    };
+    function allWindows() {
+      var out = [], queue = [];
+      try { queue.push(window.top); } catch (e) {}
+      while (queue.length && out.length < 200) {
+        var w = queue.shift(); out.push(w);
+        try { for (var i = 0; i < w.frames.length; i++) queue.push(w.frames[i]); } catch (e) {}
+      }
+      return out;
+    }
+    // Cadre expéditeur probable : un autre cadre proxifié dont l'origine réelle
+    // correspond ; à défaut le destinataire lui-même (message à soi).
+    function findSender(origin, target) {
+      if (!origin) return null;
+      var ws = allWindows();
+      for (var i = 0; i < ws.length; i++) {
+        try { if (ws[i] !== target && ws[i].__vtSend && ws[i].__VEL_REAL && ws[i].__VEL_REAL() === origin) return ws[i]; } catch (e) {}
+      }
+      try { if (target.__VEL_REAL && target.__VEL_REAL() === origin) return target; } catch (e) {}
+      return null;
+    }
     window.postMessage = function (msg, target, transfer) {
       var from = senderOrigin();
       var box = from ? { __vtBox: 1, o: from, d: msg } : msg;
-      if (target && typeof target === "object") {
-        var opts = {}; for (var k in target) opts[k] = target[k];
-        opts.targetOrigin = "*";
-        return _pm.call(this, box, opts);
+      var opts = null;
+      if (target && typeof target === "object") { opts = {}; for (var k in target) opts[k] = target[k]; opts.targetOrigin = "*"; }
+      var sender = findSender(from, this);
+      if (sender && sender.__vtSend) {
+        try { return sender.__vtSend(this, box, opts, transfer); } catch (e) {}
       }
+      if (opts) return _pm.call(this, box, opts);
       return transfer === undefined ? _pm.call(this, box, "*") : _pm.call(this, box, "*", transfer);
     };
     try {
