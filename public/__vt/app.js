@@ -87,7 +87,8 @@
       b.title = editing ? "Retirer " + s.name : s.url;
     });
     if (!editing) chip("+ Ajouter", "chip-ghost", function () {
-      form.hidden = false; nameIn.focus();
+      form.hidden = false; urlIn.focus();
+      try { form.scrollIntoView({ block: "center", behavior: "smooth" }); } catch (e) {}
     });
     if (sites.length) chip(editing ? "Terminé" : "Modifier", "chip-ghost", function () {
       editing = !editing; form.hidden = true; renderSites();
@@ -95,8 +96,11 @@
   }
   form.addEventListener("submit", function (e) {
     e.preventDefault();
-    var url = resolveQuery(urlIn.value);
-    if (!url || /bing\.com\/search\?q=/.test(url) && !/^https?:/i.test(urlIn.value.trim())) {
+    var raw = urlIn.value.trim();
+    // "twitch" tout court -> twitch.com ; sinon adresse normale.
+    if (/^[a-z0-9-]+$/i.test(raw)) raw += ".com";
+    var url = raw && resolveQuery(raw);
+    if (!url || /bing\.com\/search\?q=/.test(url) && !/^https?:/i.test(raw)) {
       urlIn.focus(); urlIn.setCustomValidity("Entre une adresse, par ex. twitch.tv"); urlIn.reportValidity();
       return;
     }
