@@ -38,6 +38,37 @@
       } catch (e) {}
       return CFG.base || location.href;
     }
+    // Site ouvert en "mode site", vu depuis n'importe quel cadre (une iframe /w/
+    // le récupère auprès de la page principale).
+    var TOPHOME = HOME || (function () { try { return (window.top.__VEL || {}).home || ""; } catch (e) { return ""; } })();
+
+    // Adresse de notre domaine -> adresse réelle ("" pour nos propres pages).
+    function realOfWorkerUrl(s) {
+      try {
+        var u = new URL(s);
+        if (u.origin !== ORIGIN) return s;
+        if (u.pathname.indexOf("/w/") === 0) {
+          var rest = u.pathname.slice(3), i = rest.indexOf("/");
+          return new URL(dec(i < 0 ? rest : rest.slice(0, i)) + (i < 0 ? "/" : rest.slice(i)) + u.search + u.hash).href;
+        }
+        if (u.pathname.indexOf("/__vt/") === 0 || u.pathname.indexOf("/p/") === 0) return "";
+        if (TOPHOME) {
+          var q = u.search.replace(/([?&])__vts=1(&|$)/, function (m, a, b) { return b ? a : ""; });
+          return new URL(TOPHOME + u.pathname + q + u.hash).href;
+        }
+      } catch (e) {}
+      return "";
+    }
+
+    // document.referrer : certains sites (portails de jeux…) vérifient qui les a
+    // ouverts. On rend l'adresse réelle au lieu de la nôtre.
+    try {
+      var rd = Object.getOwnPropertyDescriptor(Document.prototype, "referrer");
+      if (rd && rd.get) Object.defineProperty(Document.prototype, "referrer", {
+        configurable: true, get: function () { var r = rd.get.call(this); return r ? realOfWorkerUrl(r) : r; }
+      });
+    } catch (e) {}
+
     window.__VEL_REAL = function () { try { return new URL(currentReal()).origin; } catch (e) { return ORIGIN; } };
 
     // Adresse réelle -> adresse dans le proxy (chemin racine pour le site ouvert,
@@ -146,16 +177,8 @@
     // l'envoie à "*", emballé avec l'origine réelle de l'expéditeur (retrouvée
     // d'après l'adresse du script appelant), et on le déballe à la réception.
     function realOriginOfScript(src) {
-      try {
-        var u = new URL(src);
-        if (u.origin !== ORIGIN) return u.origin;
-        if (u.pathname.indexOf("/w/") === 0) {
-          var rest = u.pathname.slice(3), i = rest.indexOf("/");
-          return dec(i < 0 ? rest : rest.slice(0, i));
-        }
-        if (u.pathname.indexOf("/__vt/") === 0) return "";
-        return HOME || "";
-      } catch (e) { return ""; }
+      var r = realOfWorkerUrl(src);
+      try { return r ? new URL(r).origin : ""; } catch (e) { return ""; }
     }
     function senderOrigin() {
       try {
