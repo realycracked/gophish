@@ -8,10 +8,12 @@ import { Chess } from "chess.js";
 export const CODE_RE = /^[A-HJ-NP-Z2-9]{5}$/;
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 // Cadences : [minutes, incrément en secondes]
-export const TCS = { "1+0": [1, 0], "3+0": [3, 0], "3+2": [3, 2], "5+0": [5, 0], "10+0": [10, 0], "15+10": [15, 10] };
+// ("inf" : sans pendule, mais 10 minutes au plus par coup.)
+export const TCS = { "1+0": [1, 0], "3+0": [3, 0], "3+2": [3, 2], "5+0": [5, 0], "10+0": [10, 0], "15+10": [15, 10], inf: [0, 0] };
 const START_RATING = 1200;
 const ABORT_MS = 45_000;          // partie classée : délai pour jouer son premier coup
 const FORGET_MS = 30 * 86400e3;   // partie oubliée après 30 jours sans activité
+const IDLE_MS = 10 * 60_000;      // partie classée sans pendule : 10 min au plus par coup
 
 function newCode() {
   const a = new Uint32Array(5); crypto.getRandomValues(a);
@@ -23,7 +25,7 @@ export function cleanName(n) {
 }
 function parseTc(s) {
   const t = TCS[s];
-  return t ? { id: s, base: t[0] * 60_000, inc: t[1] * 1000 } : null;
+  return t ? { id: s, base: t[0] * 60_000, inc: t[1] * 1000, untimed: t[0] === 0 } : null;
 }
 const other = (c) => (c === "w" ? "b" : "w");
 const pidOf = (url) => (url.searchParams.get("p") || "").slice(0, 40);
@@ -56,7 +58,7 @@ export class ChessRoom {
     return {
       w: null, b: null, names: {}, tc, rated: false,
       moves: [], result: null, drawOffer: null, ratingChange: null,
-      clock: tc ? { w: tc.base, b: tc.base, running: null, at: 0 } : null,
+      clock: tc && !tc.untimed ? { w: tc.base, b: tc.base, running: null, at: 0 } : null,
       created: Date.now(), last: Date.now(),
       ...fields,
     };
@@ -106,6 +108,7 @@ export class ChessRoom {
     let at;
     if (!g.result && g.clock && g.clock.running) at = g.clock.at + g.clock[g.clock.running] + 50;
     else if (!g.result && g.rated && g.moves.length < 2) at = g.last + ABORT_MS;
+    else if (!g.result && g.rated && !g.clock) at = g.last + IDLE_MS;
     else at = g.last + FORGET_MS;
     await this.ctx.storage.setAlarm(at);
   }
@@ -118,6 +121,11 @@ export class ChessRoom {
       await this.finish(g);
     } else if (!g.result && g.rated && g.moves.length < 2 && now >= g.last + ABORT_MS) {
       g.result = { winner: null, reason: "partie annulée", aborted: true };
+    } else if (!g.result && g.rated && !g.clock && now >= g.last + IDLE_MS) {
+      // Sans pendule : le joueur au trait qui ne joue plus perd.
+      const turn = g.moves.length % 2 === 0 ? "w" : "b";
+      g.result = { winner: other(turn), reason: "inactivité (10 min sans jouer)" };
+      await this.finish(g);
     } else if (g.result && now >= g.last + FORGET_MS) {
       await this.ctx.storage.deleteAll();
       return;
@@ -181,6 +189,7 @@ export class ChessRoom {
       names: { w: info(g.w), b: info(g.b) },
       tc: g.tc && g.tc.id, rated: !!g.rated, clock, drawOffer: g.drawOffer, ratingChange: g.ratingChange,
       abortAt: g.rated && !g.result && g.moves.length < 2 ? g.last + ABORT_MS - now : null,
+      idleLeft: g.rated && !g.clock && !g.result && g.moves.length >= 2 ? g.last + IDLE_MS - now : null,
     });
   }
 
