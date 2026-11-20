@@ -49,6 +49,12 @@ Sans proxy, tout passe par des *Durable Objects* Cloudflare (gratuits) :
   en 45 s, défaite au temps.
 - **Elo** : 1200 au départ, K = 40 pour les 30 premières parties puis 20 ;
   profil avec pseudo et bilan, **classement** des 20 meilleurs.
+- **Sans pendule** en matchmaking aussi (« Sans limite ») : pas de pendule, mais
+  10 minutes au plus par coup, sinon défaite par inactivité.
+- **Contre l'ordinateur** : 6 bots (≈ 400 à 2600 Elo) avec Stockfish 19 « lite »
+  (WebAssembly, 1,8 Mo, dans `public/__vt/vendor/stockfish/`, licence GPL-3.0)
+  qui tourne dans le navigateur ; choix de la couleur, indice, reprise de coup,
+  partie sauvegardée sur l'appareil.
 - **Entre amis** (non classé) : code de 5 caractères ou lien, avec ou sans pendule,
   revanche. Et **à deux sur cet écran**.
 - Plateau façon chess.com : glisser-déposer, coups animés, sons.

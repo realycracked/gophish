@@ -37,6 +37,7 @@
 
   <nav class="tabs" id="tabs" role="tablist">
     <button type="button" data-tab="play" class="on" role="tab">Jouer</button>
+    <button type="button" data-tab="bot" role="tab">Ordi</button>
     <button type="button" data-tab="friends" role="tab">Amis</button>
     <button type="button" data-tab="top" role="tab">Classement</button>
   </nav>
@@ -48,8 +49,23 @@
       <div class="tcs"><button type="button" data-tc="3+0">3 min</button><button type="button" data-tc="3+2">3 | 2</button><button type="button" data-tc="5+0">5 min</button></div></div>
     <div class="tc-group"><div class="tc-cat"><span class="tc-ic rapid"><svg viewBox="0 0 24 24"><circle cx="12" cy="13" r="8" fill="none" stroke="currentColor" stroke-width="2.2"/><path d="M12 9v4l3 2M9 2h6" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></svg></span>Rapide</div>
       <div class="tcs"><button type="button" data-tc="10+0">10 min</button><button type="button" data-tc="15+10">15 | 10</button></div></div>
+    <div class="tc-group"><div class="tc-cat"><span class="tc-ic inf"><svg viewBox="0 0 24 24"><path d="M6.5 8.5a3.5 3.5 0 1 0 0 7c3 0 8-7 11-7a3.5 3.5 0 1 1 0 7c-3 0-8-7-11-7z" fill="none" stroke="currentColor" stroke-width="2.2"/></svg></span>Sans pendule</div>
+      <div class="tcs"><button type="button" data-tc="inf">Sans limite</button></div></div>
     <button class="play" id="play" type="button">Jouer</button>
     <p class="hint-txt">Partie classée : ton Elo monte ou descend selon le résultat.</p>
+  </section>
+
+  <section class="panel" data-panel="bot" hidden>
+    <div class="bots" id="bots"></div>
+    <div class="set-label">Tu joues avec</div>
+    <div class="colors" id="bot-colors">
+      <button type="button" data-c="w"><span class="pc wk"></span>Blancs</button>
+      <button type="button" data-c="r"><span class="rnd">?</span>Au hasard</button>
+      <button type="button" data-c="b"><span class="pc bk"></span>Noirs</button>
+    </div>
+    <button class="play" id="bot-play" type="button">Jouer</button>
+    <button class="card-btn" id="bot-resume" type="button" hidden><span class="cb-ic"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z" fill="currentColor"/></svg></span><span><strong>Reprendre la partie</strong><small id="bot-resume-sub"></small></span></button>
+    <p class="hint-txt">Le moteur Stockfish tourne dans ton navigateur : ça marche même hors ligne. Parties non classées.</p>
   </section>
 
   <section class="panel" data-panel="friends" hidden>
@@ -103,6 +119,7 @@
     <div class="toolbar">
       <button type="button" id="draw"><svg viewBox="0 0 24 24"><text x="12" y="17" text-anchor="middle" font-size="15" font-weight="700" fill="currentColor">½</text></svg><span>Nulle</span></button>
       <button type="button" id="resign"><svg viewBox="0 0 24 24"><path d="M6 21V4m0 0h10l-2 4 2 4H6" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/></svg><span id="resign-lbl">Abandon</span></button>
+      <button type="button" id="hint" hidden><svg viewBox="0 0 24 24"><path d="M9 18h6M10 21h4M12 3a6 6 0 0 0-3.5 10.9c.6.5 1 1.2 1 2.1h5c0-.9.4-1.6 1-2.1A6 6 0 0 0 12 3z" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Indice</span></button>
       <button type="button" id="undo" hidden><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5M4 9h10a6 6 0 0 1 0 12h-3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Annuler</span></button>
       <button type="button" id="flip"><svg viewBox="0 0 24 24"><path d="M7 4v16m0 0l-3-3m3 3l3-3M17 20V4m0 0l-3 3m3-3l3 3" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Tourner</span></button>
       <button type="button" id="prev"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg><span>Préc.</span></button>

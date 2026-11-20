@@ -5,7 +5,7 @@ import { Chess } from "/__vt/vendor/chess.js";
 const $ = (id) => document.getElementById(id);
 const VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
 const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const TC_LABEL = { "1+0": "1 min", "3+0": "3 min", "3+2": "3 | 2", "5+0": "5 min", "10+0": "10 min", "15+10": "15 | 10" };
+const TC_LABEL = { "1+0": "1 min", "3+0": "3 min", "3+2": "3 | 2", "5+0": "5 min", "10+0": "10 min", "15+10": "15 | 10", inf: "Sans limite" };
 
 function read(k) { try { return localStorage.getItem(k); } catch { return null; } }
 function store(k, v) { try { localStorage.setItem(k, v); } catch {} }
@@ -34,6 +34,13 @@ function paintAvatar(el, name) {
   let h = 0; for (const ch of n) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
   el.textContent = n.charAt(0).toUpperCase();
   el.style.background = AV_COLORS[h % AV_COLORS.length];
+}
+
+function setAvatar(el, name, piece) {
+  if (!el) return;
+  if (piece) { el.classList.add("bot"); el.style.background = ""; el.innerHTML = '<span class="pc ' + piece + '"></span>'; return; }
+  el.classList.remove("bot");
+  paintAvatar(el, name);
 }
 
 // ---------- État ----------
@@ -85,7 +92,7 @@ let skipAnim = false;     // coup joué au glisser : la pièce est déjà à sa 
 let drag = null;          // { from, el, x0, y0, moved }
 
 function orientation() {
-  const base = mode === "online" && me === "b" ? "b" : "w";
+  const base = (mode === "online" || mode === "bot") && me === "b" ? "b" : "w";
   return flipped ? (base === "w" ? "b" : "w") : base;
 }
 function sqToXY(sq) {
@@ -154,6 +161,7 @@ function render() {
     if (last && (last.from === sq || last.to === sq)) el.classList.add("last");
     if (sq === selected) el.classList.add("sel");
     if (sq === checkSq) el.classList.add("check");
+    if (hintSquares && viewIdx == null && hintSquares.includes(sq)) el.classList.add("hintmove");
     if (hints.has(sq)) el.classList.add("hint", ...(pos.get(sq) || hints.get(sq).flags.includes("e") ? ["cap"] : []));
     if (x === 0) el.insertAdjacentHTML("beforeend", `<span class="coord r">${sq[1]}</span>`);
     if (y === 7) el.insertAdjacentHTML("beforeend", `<span class="coord f">${sq[0]}</span>`);
@@ -208,16 +216,20 @@ function renderSide() {
   const top = bottom === "w" ? "b" : "w";
   const label = (c) => {
     if (mode === "local") return { name: c === "w" ? "Blancs" : "Noirs", elo: "" };
+    if (mode === "bot") {
+      const bot = botCfg();
+      return c === me ? { name: (profile ? profile.name : "Toi") + " (toi)", elo: "" } : { name: "Bot " + bot.name, elo: "(" + bot.elo + ")", bot: bot.piece };
+    }
     const n = names[c];
     const base = n ? n.name : c === "w" ? "Blancs" : "Noirs";
     return { name: c === me ? base + " (toi)" : base, elo: n && n.rating ? "(" + n.rating + ")" : "" };
   };
   const fill = (el, c, capEl) => {
     const l = label(c);
-    paintAvatar(el.querySelector("[data-av]"), l.name);
+    setAvatar(el.querySelector("[data-av]"), l.name, l.bot && (c === "w" ? "w" : "b") + l.bot);
     el.querySelector(".name").textContent = l.name;
     el.querySelector(".elo").textContent = l.elo;
-    el.classList.toggle("on", mode === "local" || !!players[c]);
+    el.classList.toggle("on", mode === "local" || mode === "bot" || !!players[c]);
     el.classList.toggle("turn", !result && game.turn() === c && (mode === "local" || players.bJoined));
     const took = captured(c === "w" ? "b" : "w"), lost = captured(c);
     capEl.innerHTML = "";
@@ -234,6 +246,10 @@ function renderSide() {
   st.classList.toggle("end", !!result);
   if (result) {
     st.textContent = resultTitle() + " · " + result.reason;
+  } else if (mode === "bot") {
+    st.innerHTML = "";
+    if (game.turn() === me) st.textContent = game.inCheck() ? "Échec ! À toi de jouer" : "À toi de jouer";
+    else { st.textContent = "Bot " + botCfg().name + " réfléchit"; st.insertAdjacentHTML("beforeend", '<span class="thinking"><i></i><i></i><i></i></span>'); }
   } else if (mode === "online" && !players.bJoined) {
     st.textContent = "En attente de ton ami…";
   } else if (mode === "online" && me === "s") {
@@ -244,18 +260,21 @@ function renderSide() {
     st.textContent = (game.turn() === me ? "Joue ton premier coup" : "En attente du premier coup adverse") + " (sinon la partie est annulée)";
   } else if (mode === "online") {
     st.textContent = game.turn() === me ? (game.inCheck() ? "Échec ! À toi de jouer" : "À toi de jouer") : "Ton adversaire réfléchit…";
+    if (rated && !clock) st.textContent += " · 10 min max par coup";
   } else {
     st.textContent = (game.turn() === "w" ? "Aux blancs" : "Aux noirs") + (game.inCheck() ? " · échec !" : "");
   }
 
   const playing = mode === "online" && me !== "s" && players.bJoined && !result;
   $("share").hidden = !(mode === "online" && !rated && !players.bJoined && me === "w");
-  const canResign = playing || (mode === "local" && !result);
+  const canResign = playing || ((mode === "local" || mode === "bot") && !result);
   $("resign").disabled = !canResign;
   $("resign-lbl").textContent = rated && moves.length < 2 && !result ? "Annuler" : "Abandon";
-  $("draw").hidden = mode === "local";
+  $("draw").hidden = mode === "local" || mode === "bot";
+  $("hint").hidden = mode !== "bot";
+  $("hint").disabled = !(mode === "bot" && !result && game.turn() === me && !botThinking && viewIdx == null);
   $("draw").disabled = !(playing && moves.length >= 2 && !drawOffer);
-  $("undo").hidden = !(mode === "local");
+  $("undo").hidden = !(mode === "local" || mode === "bot");
   $("undo").disabled = !(moves.length && !result);
   const n = viewIdx == null ? moves.length : viewIdx;
   $("prev").disabled = n === 0;
@@ -302,6 +321,7 @@ function resultTitle() {
   if (result.aborted) return "Partie annulée";
   if (result.winner === null) return "Partie nulle";
   if (mode === "local" || me === "s") return result.winner === "w" ? "Les blancs gagnent" : "Les noirs gagnent";
+  if (mode === "bot") return result.winner === me ? "Tu as gagné !" : "Le bot a gagné";
   return result.winner === me ? "Tu as gagné !" : "Tu as perdu";
 }
 
@@ -345,8 +365,10 @@ function showEnd() {
     const side = document.createElement("div"); side.className = "side" + (result.winner === c ? " win" : "");
     const av = document.createElement("div"); av.className = "avatar";
     const nm = document.createElement("div"); nm.className = "nm";
-    const label = mode === "local" ? (c === "w" ? "Blancs" : "Noirs") : (names[c] && names[c].name) || (c === "w" ? "Blancs" : "Noirs");
-    paintAvatar(av, label); nm.textContent = label;
+    let label = mode === "local" ? (c === "w" ? "Blancs" : "Noirs") : (names[c] && names[c].name) || (c === "w" ? "Blancs" : "Noirs");
+    let botPiece = null;
+    if (mode === "bot") { const bot = botCfg(); if (c === me) label = profile ? profile.name : "Toi"; else { label = "Bot " + bot.name; botPiece = c + bot.piece; } }
+    setAvatar(av, label, botPiece); nm.textContent = label;
     side.append(av, nm); vs.appendChild(side);
     if (c === "w") { const v = document.createElement("div"); v.className = "vs"; v.textContent = "vs"; vs.appendChild(v); }
   }
@@ -358,7 +380,8 @@ function showEnd() {
   }
   $("end-again").hidden = !(mode === "online" && rated);
   $("end-again").textContent = "Nouvelle partie " + (TC_LABEL[tcId] || "");
-  $("end-rematch").hidden = !(mode === "local" || (mode === "online" && !rated && me !== "s"));
+  $("end-rematch").hidden = !(mode === "local" || mode === "bot" || (mode === "online" && !rated && me !== "s"));
+  $("end-rematch").textContent = mode === "bot" ? "Rejouer contre ce bot" : "Revanche";
   $("end").hidden = false;
 }
 $("end-view").addEventListener("click", () => { $("end").hidden = true; viewIdx = moves.length ? 0 : null; shownLen = -1; render(); toast("Utilise ‹ › pour rejouer les coups"); });
@@ -367,6 +390,7 @@ $("end-again").addEventListener("click", () => { const t = tcId; $("end").hidden
 $("end-rematch").addEventListener("click", () => {
   $("end").hidden = true;
   if (mode === "local") { moves = []; result = null; shownLen = -1; viewIdx = null; saveLocal(); render(); }
+  else if (mode === "bot") startBot(botId, botColorPref);
   else send({ t: "rematch" });
 });
 
@@ -375,6 +399,7 @@ function canMove() {
   if (viewIdx != null) return false;
   if (result) return false;
   if (mode === "local") return true;
+  if (mode === "bot") return !botThinking && game.turn() === me;
   return me !== "s" && players.bJoined && game.turn() === me;
 }
 
@@ -465,9 +490,14 @@ function play(from, to, promotion) {
   try { mv = game.move({ from, to, promotion: promotion || "q" }); } catch { mv = null; }
   if (!mv) return render();
   moves.push(mv.san);
+  hintSquares = null;
   if (mode === "local") {
     result = outcome(game);
     saveLocal();
+  } else if (mode === "bot") {
+    result = outcome(game);
+    saveBot();
+    if (!result) setTimeout(botMove, 0);
   } else {
     send({ t: "move", from, to, promotion: promotion || "q" });
   }
@@ -552,12 +582,14 @@ function startLocal() {
 // ---------- Écrans ----------
 function showGame() {
   $("lobby").hidden = true; $("game").hidden = false; $("seeking").hidden = true; $("online").hidden = true;
-  $("title").textContent = mode === "local" ? "À deux" : rated ? "Classée · " + (TC_LABEL[tcId] || "") : "Entre amis";
+  $("title").textContent = mode === "local" ? "À deux" : mode === "bot" ? "Contre le bot " + botCfg().name : rated ? "Classée · " + (TC_LABEL[tcId] || "") : "Entre amis";
 }
 function leave() {
   closedForGood = true;
   if (ws) try { ws.close(); } catch {}
+  botToken++; botThinking = false; hintSquares = null;
   ws = null; mode = null; code = null; moves = []; result = null; selected = null; clock = null; viewIdx = null; flipped = false;
+  renderBotResume();
   history.replaceState(null, "", "/__vt/chess");
   $("title").textContent = "Échecs";
   $("code-chip").hidden = true; $("end").hidden = true;
@@ -677,10 +709,23 @@ $("resign").addEventListener("click", () => {
   const abort = rated && moves.length < 2;
   if (!confirm(abort ? "Annuler la partie ?" : "Abandonner la partie ?")) return;
   if (mode === "local") { result = { winner: game.turn() === "w" ? "b" : "w", reason: "abandon" }; saveLocal(); render(); }
+  else if (mode === "bot") { botToken++; botThinking = false; result = { winner: me === "w" ? "b" : "w", reason: "abandon" }; saveBot(); render(); }
   else send({ t: "resign" });
 });
 $("draw").addEventListener("click", () => { send({ t: "draw" }); toast("Nulle proposée"); });
-$("undo").addEventListener("click", () => { moves.pop(); result = null; shownLen = -1; viewIdx = null; saveLocal(); render(); });
+$("undo").addEventListener("click", () => {
+  if (mode === "bot") {
+    // On reprend son dernier coup (et la réponse du bot s'il a déjà joué).
+    botToken++; botThinking = false; hintSquares = null;
+    const mine = (i) => (i % 2 === 0 ? "w" : "b") === me;
+    if (moves.length && !mine(moves.length - 1)) moves.pop();
+    if (moves.length && mine(moves.length - 1)) moves.pop();
+    result = null; shownLen = -1; viewIdx = null; saveBot(); render();
+    if (game.turn() !== me) botMove();
+    return;
+  }
+  moves.pop(); result = null; shownLen = -1; viewIdx = null; saveLocal(); render();
+});
 
 // Revue des coups, retournement du plateau
 function goLive() { viewIdx = null; render(); }
@@ -694,6 +739,137 @@ document.addEventListener("keydown", (e) => {
   else if (e.key === "f") $("flip").click();
 });
 
+// ---------- Ordinateur : Stockfish dans un Web Worker ----------
+const BOTS = [
+  { id: "pion", name: "Pion", elo: 400, piece: "p", skill: 0, depth: 1, blunder: 0.45, desc: "Il découvre les échecs et laisse souvent des pièces en prise." },
+  { id: "cavalier", name: "Cavalier", elo: 800, piece: "n", skill: 1, depth: 2, blunder: 0.22, desc: "Connaît les règles, rate encore pas mal de choses." },
+  { id: "fou", name: "Fou", elo: 1100, piece: "b", skill: 4, depth: 4, blunder: 0.09, desc: "Joueur de club débutant : attention aux fourchettes." },
+  { id: "tour", name: "Tour", elo: 1500, piece: "r", skill: 8, depth: 7, blunder: 0.03, desc: "Solide, punit les erreurs simples." },
+  { id: "dame", name: "Dame", elo: 1900, piece: "q", skill: 13, depth: 11, blunder: 0, desc: "Très fort tactiquement." },
+  { id: "roi", name: "Roi", elo: 2600, piece: "k", skill: 20, movetime: 1200, blunder: 0, desc: "Stockfish à fond. Bonne chance !" },
+];
+let botId = read("vt_chess_bot_id") || "fou", botColorPref = read("vt_chess_bot_color") || "w";
+let botThinking = false, botToken = 0, hintSquares = null;
+const botCfg = () => BOTS.find((b) => b.id === botId) || BOTS[2];
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+let engine = null, engineReady = null, engineListener = null;
+function getEngine() {
+  if (engineReady) return engineReady;
+  engineReady = new Promise((resolve, reject) => {
+    try { engine = new Worker("/__vt/vendor/stockfish/stockfish-19-lite-single.js"); } catch (e) { engineReady = null; return reject(e); }
+    engine.onmessage = (e) => {
+      const line = String(e.data);
+      if (line === "uciok") resolve();
+      if (engineListener) engineListener(line);
+    };
+    engine.onerror = () => { engineReady = null; engine = null; reject(new Error("moteur")); };
+    engine.postMessage("uci");
+  });
+  return engineReady;
+}
+// Meilleur coup (notation UCI) pour la position après `uciMoves`.
+let engineBusy = Promise.resolve();
+function engineBest(uciMoves, opts) {
+  const job = engineBusy.then(async () => {
+    await getEngine();
+    return new Promise((resolve) => {
+      const timer = setTimeout(() => { engine.postMessage("stop"); }, (opts.movetime || 4000) + 3000);
+      engineListener = (line) => {
+        if (line.startsWith("bestmove")) { clearTimeout(timer); engineListener = null; resolve(line.split(" ")[1]); }
+      };
+      engine.postMessage("setoption name Skill Level value " + opts.skill);
+      engine.postMessage("position startpos" + (uciMoves.length ? " moves " + uciMoves.join(" ") : ""));
+      engine.postMessage(opts.movetime ? "go movetime " + opts.movetime : "go depth " + opts.depth);
+    });
+  });
+  engineBusy = job.catch(() => {});
+  return job;
+}
+const uciHistory = () => game.history({ verbose: true }).map((m) => m.from + m.to + (m.promotion || ""));
+
+async function botMove() {
+  if (mode !== "bot" || result || game.turn() === me) return;
+  const tok = ++botToken, bot = botCfg(), t0 = performance.now();
+  botThinking = true; renderSide();
+  const legal = game.moves({ verbose: true });
+  let uci = null;
+  if (Math.random() < bot.blunder) {
+    const m = legal[Math.floor(Math.random() * legal.length)];
+    uci = m.from + m.to + (m.promotion || "");
+  } else {
+    try { uci = await engineBest(uciHistory(), bot); } catch {}
+    if (!uci || uci === "(none)") { const m = legal[Math.floor(Math.random() * legal.length)]; uci = m.from + m.to + (m.promotion || ""); }
+  }
+  // Un petit temps de réflexion, plus naturel.
+  const wait = 450 + Math.random() * 500 - (performance.now() - t0);
+  if (wait > 0) await sleep(wait);
+  if (tok !== botToken || mode !== "bot") return;
+  botThinking = false;
+  let mv = null;
+  try { mv = game.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] || "q" }); } catch {}
+  if (!mv) return render();
+  moves.push(mv.san);
+  result = outcome(game);
+  saveBot();
+  render();
+}
+
+$("hint").addEventListener("click", async () => {
+  if (mode !== "bot" || game.turn() !== me || botThinking) return;
+  const tok = botToken;
+  $("hint").disabled = true;
+  let uci = null;
+  try { uci = await engineBest(uciHistory(), { skill: 20, depth: 12 }); } catch {}
+  if (tok !== botToken || !uci || uci === "(none)") return renderSide();
+  hintSquares = [uci.slice(0, 2), uci.slice(2, 4)];
+  render();
+  setTimeout(() => { if (hintSquares && hintSquares[0] === uci.slice(0, 2)) { hintSquares = null; render(); } }, 3000);
+});
+
+function saveBot() { store("vt_chess_botgame", JSON.stringify({ moves, result, bot: botId, me })); }
+function startBot(id, colorPref, saved) {
+  botToken++; botThinking = false; hintSquares = null;
+  mode = "bot"; code = null; clock = null; rated = false; flipped = false; viewIdx = null; shownLen = -1; endShown = false;
+  botId = id; botColorPref = colorPref;
+  if (saved) { moves = saved.moves || []; result = saved.result || null; me = saved.me === "b" ? "b" : "w"; endShown = !!result; }
+  else { moves = []; result = null; me = colorPref === "r" ? (Math.random() < 0.5 ? "w" : "b") : colorPref; }
+  players = { w: true, b: true, bJoined: true };
+  history.replaceState(null, "", "/__vt/chess?bot=1");
+  $("code-chip").hidden = true;
+  saveBot();
+  getEngine().catch(() => toast("Le moteur n'a pas pu démarrer : le bot jouera au hasard."));
+  if (!saved && engine) engine.postMessage("ucinewgame");
+  showGame(); render();
+  if (!result && game.turn() !== me) botMove();
+}
+function savedBot() { try { const s = JSON.parse(read("vt_chess_botgame")); return s && Array.isArray(s.moves) ? s : null; } catch { return null; } }
+function renderBotResume() {
+  const s = savedBot();
+  const show = !!(s && !s.result && s.moves.length);
+  $("bot-resume").hidden = !show;
+  if (show) { const b = BOTS.find((x) => x.id === s.bot) || BOTS[2]; $("bot-resume-sub").textContent = "Contre " + b.name + " · " + Math.ceil(s.moves.length / 2) + " coups joués"; }
+}
+function renderBots() {
+  const box = $("bots"); box.innerHTML = "";
+  for (const b of BOTS) {
+    const el = document.createElement("button"); el.type = "button"; el.className = b.id === botId ? "on" : "";
+    el.innerHTML = `<span class="bot-av avatar bot"><span class="pc b${b.piece}"></span></span><b>${b.name}</b><small>≈ ${b.elo}</small>`;
+    el.title = b.desc;
+    el.onclick = () => { botId = b.id; store("vt_chess_bot_id", botId); renderBots(); };
+    box.appendChild(el);
+  }
+  $("bot-play").textContent = "Jouer contre " + botCfg().name;
+  document.querySelectorAll("#bot-colors button").forEach((x) => x.classList.toggle("on", x.dataset.c === botColorPref));
+  let d = $("bot-desc");
+  if (!d) { d = document.createElement("p"); d.id = "bot-desc"; d.className = "bot-desc"; box.after(d); }
+  d.textContent = botCfg().desc;
+}
+document.querySelectorAll("#bot-colors button").forEach((x) => x.addEventListener("click", () => { botColorPref = x.dataset.c; store("vt_chess_bot_color", botColorPref); renderBots(); }));
+$("bot-play").addEventListener("click", () => { actx = actx || new (window.AudioContext || window.webkitAudioContext)(); startBot(botId, botColorPref); });
+$("bot-resume").addEventListener("click", () => { const s = savedBot(); if (s) startBot(s.bot, botColorPref, s); });
+renderBots(); renderBotResume();
+
 // Onglets de l'accueil
 function showTab(t) {
   document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === t));
@@ -702,7 +878,7 @@ function showTab(t) {
   store("vt_chess_tab", t);
 }
 document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
-showTab(read("vt_chess_tab") === "friends" ? "friends" : "play");
+showTab(["friends", "bot"].includes(read("vt_chess_tab")) ? read("vt_chess_tab") : "play");
 
 // Réglages
 function renderSettings() {
@@ -736,3 +912,4 @@ const params = new URLSearchParams(location.search);
 const c0 = (params.get("c") || "").toUpperCase();
 if (/^[A-HJ-NP-Z2-9]{5}$/.test(c0)) startOnline(c0, true);
 else if (params.get("local")) startLocal();
+else if (params.get("bot") && savedBot()) { const s = savedBot(); startBot(s.bot, botColorPref, s); }
