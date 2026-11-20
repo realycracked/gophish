@@ -36,51 +36,107 @@ let game = new Chess();
 let selected = null;
 
 // ---------- Plateau ----------
+// Deux couches : les cases (couleurs, surlignages) et les pièces, placées en
+// absolu pour pouvoir glisser d'une case à l'autre (animation) ou suivre le doigt.
 const board = $("board");
+const FILES = "abcdefgh";
+let shownLen = -1;        // nombre de coups affichés au dernier rendu
+let skipAnim = false;     // coup joué au glisser : la pièce est déjà à sa place
+let drag = null;          // { from, el, x0, y0, moved }
+
 function orientation() { return mode === "online" && me === "b" ? "b" : "w"; }
+function sqToXY(sq) {
+  const f = FILES.indexOf(sq[0]), r = +sq[1];
+  return orientation() === "b" ? [7 - f, r - 1] : [f, 8 - r];
+}
+function xyToSq(x, y) {
+  if (x < 0 || x > 7 || y < 0 || y > 7) return null;
+  return orientation() === "b" ? FILES[7 - x] + (y + 1) : FILES[x] + (8 - y);
+}
+function place(el, sq) { const [x, y] = sqToXY(sq); el.style.transform = `translate(${x * 100}%, ${y * 100}%)`; }
+
+// ---------- Sons (synthétisés, aucun fichier) ----------
+let actx = null;
+function sound(kind) {
+  try {
+    actx = actx || new (window.AudioContext || window.webkitAudioContext)();
+    const t = actx.currentTime;
+    const hit = (delay, freq, vol) => {
+      const o = actx.createOscillator(), g = actx.createGain();
+      o.type = "triangle";
+      o.frequency.setValueAtTime(freq, t + delay);
+      o.frequency.exponentialRampToValueAtTime(freq * 0.45, t + delay + 0.09);
+      g.gain.setValueAtTime(0.0001, t + delay);
+      g.gain.exponentialRampToValueAtTime(vol, t + delay + 0.005);
+      g.gain.exponentialRampToValueAtTime(0.0001, t + delay + 0.11);
+      o.connect(g).connect(actx.destination);
+      o.start(t + delay); o.stop(t + delay + 0.12);
+    };
+    if (kind === "capture") { hit(0, 260, 0.35); hit(0.045, 200, 0.3); }
+    else if (kind === "check") { hit(0, 520, 0.25); hit(0.07, 700, 0.2); }
+    else hit(0, 330, 0.3);
+  } catch {}
+}
 
 function render() {
   game = new Chess();
   for (const san of moves) { try { game.move(san); } catch { break; } }
   const hist = game.history({ verbose: true });
   const last = hist[hist.length - 1];
-  const flip = orientation() === "b";
-  const files = "abcdefgh";
+  const animate = shownLen >= 0 && moves.length === shownLen + 1 && last && !skipAnim;
+  const newMove = shownLen >= 0 && moves.length === shownLen + 1 && last;
+  shownLen = moves.length;
+  skipAnim = false;
+
   const hints = new Map();
   if (selected) for (const m of game.moves({ square: selected, verbose: true })) hints.set(m.to, m);
   let checkSq = null;
-  if (game.inCheck()) {
-    for (const row of game.board()) for (const c of row) if (c && c.type === "k" && c.color === game.turn()) checkSq = c.square;
-  }
+  if (game.inCheck()) for (const row of game.board()) for (const c of row) if (c && c.type === "k" && c.color === game.turn()) checkSq = c.square;
 
+  // Cases
   board.innerHTML = "";
-  for (let r = 0; r < 8; r++) {
-    for (let f = 0; f < 8; f++) {
-      const rank = flip ? r + 1 : 8 - r;
-      const file = flip ? files[7 - f] : files[f];
-      const sq = file + rank;
-      const el = document.createElement("div");
-      const light = (files.indexOf(file) + rank) % 2 === 1;
-      el.className = "sq " + (light ? "l" : "d");
-      el.dataset.sq = sq;
-      el.setAttribute("role", "gridcell");
-      if (last && (last.from === sq || last.to === sq)) el.classList.add("last");
-      if (sq === selected) el.classList.add("sel");
-      if (sq === checkSq) el.classList.add("check");
-      const piece = game.get(sq);
-      if (piece) {
-        const p = document.createElement("span");
-        p.className = "pc " + piece.color;
-        p.textContent = GLYPH[piece.type] + "︎";
-        el.appendChild(p);
-        el.setAttribute("aria-label", sq + " " + (piece.color === "w" ? "blanc" : "noir") + " " + piece.type);
-      } else el.setAttribute("aria-label", sq);
-      if (hints.has(sq)) el.classList.add("hint", ...(piece || hints.get(sq).flags.includes("e") ? ["cap"] : []));
-      if (f === 0) el.insertAdjacentHTML("beforeend", `<span class="coord r">${rank}</span>`);
-      if (r === 7) el.insertAdjacentHTML("beforeend", `<span class="coord f">${file}</span>`);
-      board.appendChild(el);
-    }
+  const sqLayer = document.createElement("div"); sqLayer.className = "squares";
+  for (let y = 0; y < 8; y++) for (let x = 0; x < 8; x++) {
+    const sq = xyToSq(x, y);
+    const el = document.createElement("div");
+    const light = (FILES.indexOf(sq[0]) + +sq[1]) % 2 === 1;
+    el.className = "sq " + (light ? "l" : "d");
+    el.dataset.sq = sq;
+    if (last && (last.from === sq || last.to === sq)) el.classList.add("last");
+    if (sq === selected) el.classList.add("sel");
+    if (sq === checkSq) el.classList.add("check");
+    if (hints.has(sq)) el.classList.add("hint", ...(game.get(sq) || hints.get(sq).flags.includes("e") ? ["cap"] : []));
+    if (x === 0) el.insertAdjacentHTML("beforeend", `<span class="coord r">${sq[1]}</span>`);
+    if (y === 7) el.insertAdjacentHTML("beforeend", `<span class="coord f">${sq[0]}</span>`);
+    sqLayer.appendChild(el);
   }
+  board.appendChild(sqLayer);
+
+  // Pièces
+  const pcLayer = document.createElement("div"); pcLayer.className = "pieces";
+  const moving = [];
+  for (const row of game.board()) for (const c of row) {
+    if (!c) continue;
+    const el = document.createElement("div");
+    el.className = "pc " + c.color + c.type;
+    el.dataset.sq = c.square;
+    place(el, c.square);
+    if (animate) {
+      // Glissement depuis la case de départ (et la tour en cas de roque).
+      let from = null;
+      if (c.square === last.to) from = last.from;
+      if (last.flags.includes("k") && c.type === "r" && c.square === "f" + last.to[1]) from = "h" + last.to[1];
+      if (last.flags.includes("q") && c.type === "r" && c.square === "d" + last.to[1]) from = "a" + last.to[1];
+      if (from) { place(el, from); el.classList.add("still"); moving.push([el, c.square]); }
+    }
+    pcLayer.appendChild(el);
+  }
+  board.appendChild(pcLayer);
+  if (moving.length) {
+    void pcLayer.offsetWidth; // applique la position de départ avant l'animation
+    for (const [el, sq] of moving) { el.classList.remove("still"); el.classList.add("moving"); place(el, sq); }
+  }
+  if (newMove) sound(game.inCheck() ? "check" : last.captured ? "capture" : "move");
   renderSide();
 }
 
@@ -89,12 +145,13 @@ function captured(color) {
   const start = { p: 8, n: 2, b: 2, r: 2, q: 1 };
   const now = { p: 0, n: 0, b: 0, r: 0, q: 0 };
   for (const row of game.board()) for (const c of row) if (c && c.color === color && c.type !== "k") now[c.type]++;
-  let s = "", pts = 0;
+  const list = []; let pts = 0;
   for (const t of ["q", "r", "b", "n", "p"]) {
     const n = Math.max(0, start[t] - now[t]);
-    s += GLYPH[t].repeat(n); pts += n * VALUE[t];
+    for (let i = 0; i < n; i++) list.push(color + t);
+    pts += n * VALUE[t];
   }
-  return { s, pts };
+  return { list, pts };
 }
 
 function renderSide() {
@@ -110,7 +167,10 @@ function renderSide() {
     el.classList.toggle("on", mode === "local" || !!players[c]);
     el.classList.toggle("turn", !result && game.turn() === c && (mode === "local" || players.bJoined));
     // On affiche, à côté d'un joueur, les pièces qu'il a prises.
-    capEl.textContent = captured(c === "w" ? "b" : "w").s;
+    const took = captured(c === "w" ? "b" : "w"), lost = captured(c);
+    capEl.innerHTML = "";
+    for (const k of took.list) { const i = document.createElement("span"); i.className = "pc mini " + k; capEl.appendChild(i); }
+    if (took.pts > lost.pts) capEl.appendChild(document.createTextNode(" +" + (took.pts - lost.pts)));
   };
   fill($("p-top"), top, $("cap-top"));
   fill($("p-bot"), bottom, $("cap-bot"));
@@ -156,21 +216,73 @@ function canMove() {
   return me !== "s" && players.bJoined && game.turn() === me;
 }
 
-board.addEventListener("click", (e) => {
-  const sqEl = e.target.closest(".sq");
-  if (!sqEl || !canMove()) return;
-  const sq = sqEl.dataset.sq;
+// Toucher-toucher ou glisser-déposer (appui maintenu), comme sur chess.com.
+function trySelectOrMove(sq) {
   const piece = game.get(sq);
-  if (selected) {
+  if (selected && selected !== sq) {
     const mv = game.moves({ square: selected, verbose: true }).filter((m) => m.to === sq);
     if (mv.length) {
-      if (mv.some((m) => m.promotion)) return askPromotion(selected, sq);
-      return play(selected, sq);
+      if (mv.some((m) => m.promotion)) { askPromotion(selected, sq); return true; }
+      play(selected, sq);
+      return true;
     }
   }
-  selected = piece && piece.color === game.turn() ? (selected === sq ? null : sq) : null;
+  return false;
+}
+function pointSq(e) {
+  const r = board.getBoundingClientRect();
+  return xyToSq(Math.floor((e.clientX - r.left) / r.width * 8), Math.floor((e.clientY - r.top) / r.height * 8));
+}
+board.addEventListener("pointerdown", (e) => {
+  if (e.button > 0 || !canMove()) return;
+  sound.warm = sound.warm || (actx = actx || new (window.AudioContext || window.webkitAudioContext)(), true);
+  const sq = pointSq(e);
+  if (!sq) return;
+  if (trySelectOrMove(sq)) return;
+  const piece = game.get(sq);
+  if (!piece || piece.color !== game.turn()) { if (selected) { selected = null; render(); } return; }
+  const wasSelected = selected === sq;
+  selected = sq;
   render();
+  const el = board.querySelector(`.pc[data-sq="${sq}"]`);
+  if (!el) return;
+  drag = { from: sq, el, x0: e.clientX, y0: e.clientY, moved: false, wasSelected };
+  try { board.setPointerCapture(e.pointerId); } catch {}
+  e.preventDefault();
 });
+board.addEventListener("pointermove", (e) => {
+  if (!drag) return;
+  if (!drag.moved && Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 4) return;
+  drag.moved = true;
+  const r = board.getBoundingClientRect(), size = r.width / 8;
+  drag.el.classList.add("dragging");
+  drag.el.style.transform = `translate(${e.clientX - r.left - size / 2}px, ${e.clientY - r.top - size / 2}px) scale(1.12)`;
+  const over = pointSq(e);
+  board.querySelectorAll(".sq.over").forEach((s) => s.classList.remove("over"));
+  if (over) { const s = board.querySelector(`.sq[data-sq="${over}"]`); if (s) s.classList.add("over"); }
+});
+function endDrag(e, cancel) {
+  if (!drag) return;
+  const d = drag; drag = null;
+  board.querySelectorAll(".sq.over").forEach((s) => s.classList.remove("over"));
+  if (!d.moved) {
+    // Simple toucher : un second toucher sur la même pièce la désélectionne.
+    if (d.wasSelected) { selected = null; render(); }
+    return;
+  }
+  const to = cancel ? null : pointSq(e);
+  const legal = to && game.moves({ square: d.from, verbose: true }).filter((m) => m.to === to);
+  if (legal && legal.length) {
+    skipAnim = true;
+    if (legal.some((m) => m.promotion)) { place(d.el, to); d.el.classList.remove("dragging"); askPromotion(d.from, to); }
+    else play(d.from, to);
+  } else {
+    // Retour à la case de départ, en glissant.
+    d.el.classList.remove("dragging"); d.el.classList.add("moving"); place(d.el, d.from);
+  }
+}
+board.addEventListener("pointerup", (e) => endDrag(e, false));
+board.addEventListener("pointercancel", (e) => endDrag(e, true));
 
 function askPromotion(from, to) {
   const box = $("promo");
@@ -178,7 +290,7 @@ function askPromotion(from, to) {
   for (const t of ["q", "r", "b", "n"]) {
     const b = document.createElement("button");
     b.type = "button";
-    b.innerHTML = `<span class="pc ${game.turn()}">${GLYPH[t]}︎</span>`;
+    b.innerHTML = `<span class="pc ${game.turn()}${t}"></span>`;
     b.addEventListener("click", () => { box.hidden = true; play(from, to, t); });
     box.appendChild(b);
   }
