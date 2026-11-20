@@ -3,7 +3,7 @@
   color-scheme: dark;
   --bg: #0d0e1a; --surface: #161828; --surface-2: #20233c; --fg: #eef0ff; --muted: #a2a4c8;
   --line: rgba(255,255,255,.10); --accent: #8b7bff; --blue: #3f8bff;
-  --sq-light: #e9e7f8; --sq-dark: #8a83c8;
+  --sq-light: #ebecd0; --sq-dark: #739552;
 }
 * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
 html, body { margin: 0; }
@@ -46,37 +46,44 @@ button, input { font: inherit; color: inherit; }
 .player .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--muted); opacity: .5; }
 .player.on .dot { background: #2ed6a1; opacity: 1; }
 .player.turn .name::after { content: " · à jouer"; color: var(--accent); font-weight: 500; }
-.cap { margin-left: auto; font-family: "Noto Sans Symbols 2", "Segoe UI Symbol", "Apple Symbols", serif; font-size: 18px; color: var(--muted); letter-spacing: -2px; }
+.player .cap { margin-left: auto; }
 
-/* Plateau */
+/* Plateau (couleurs « vert » façon chess.com) */
 .board-wrap { position: relative; }
 .board {
-  display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(8, minmax(0, 1fr)); aspect-ratio: 1; width: 100%;
-  border-radius: 12px; overflow: hidden; box-shadow: 0 20px 40px -24px rgba(0,0,0,.8); user-select: none; -webkit-user-select: none;
+  position: relative; width: 100%; aspect-ratio: 1; border-radius: 6px; overflow: hidden;
+  box-shadow: 0 20px 40px -24px rgba(0,0,0,.8); user-select: none; -webkit-user-select: none;
+  touch-action: none; -webkit-touch-callout: none;
 }
-.sq { position: relative; display: grid; place-items: center; cursor: pointer; overflow: hidden; min-width: 0; min-height: 0; }
+.squares { position: absolute; inset: 0; display: grid; grid-template-columns: repeat(8, minmax(0, 1fr)); grid-template-rows: repeat(8, minmax(0, 1fr)); }
+.sq { position: relative; min-width: 0; min-height: 0; }
 .sq.l { background: var(--sq-light); } .sq.d { background: var(--sq-dark); }
-.sq.last.l { background: #f3e9a6; } .sq.last.d { background: #c9b85f; }
-.sq.sel { box-shadow: inset 0 0 0 4px var(--accent); }
-.sq.check { background: radial-gradient(circle, #ff4d4f 0%, #ff4d4f80 45%, transparent 75%) !important; }
-.sq .coord { position: absolute; font-size: 10px; font-weight: 600; opacity: .7; pointer-events: none; }
-.sq .coord.r { top: 2px; left: 3px; } .sq .coord.f { bottom: 1px; right: 3px; }
+.sq.last.l, .sq.sel.l { background: #f5f682; } .sq.last.d, .sq.sel.d { background: #b9ca43; }
+.sq.check { background: radial-gradient(circle, #ff3b30 0%, #e0262680 40%, transparent 72%), var(--sq-light) !important; }
+.sq.d.check { background: radial-gradient(circle, #ff3b30 0%, #e0262680 40%, transparent 72%), var(--sq-dark) !important; }
+.sq.over { box-shadow: inset 0 0 0 4px rgba(255,255,255,.75); }
+.sq .coord { position: absolute; font: 700 clamp(9px, 2.6vw, 13px) Inter, system-ui, sans-serif; pointer-events: none; }
+.sq .coord.r { top: 2px; left: 3px; } .sq .coord.f { bottom: 1px; right: 4px; }
 .sq.l .coord { color: var(--sq-dark); } .sq.d .coord { color: var(--sq-light); }
-.pc {
-  font-family: "Noto Sans Symbols 2", "Segoe UI Symbol", "Apple Symbols", "DejaVu Sans", serif;
-  font-size: min(8.6vw, 50px); line-height: 1; pointer-events: none; transform: translateY(1px);
-}
-.pc.w { color: #fff; text-shadow: 0 0 1px #000, 0 0 1px #000, 0 0 2px #000, 0 2px 3px rgba(0,0,0,.35); }
-.pc.b { color: #15151e; text-shadow: 0 0 1px rgba(255,255,255,.45), 0 2px 3px rgba(0,0,0,.25); }
-.sq.hint::after { content: ""; width: 30%; height: 30%; border-radius: 50%; background: rgba(20,20,40,.28); pointer-events: none; position: absolute; }
-.sq.hint.cap::after { width: 86%; height: 86%; background: none; border: 5px solid rgba(20,20,40,.28); }
+.sq.hint::after { content: ""; position: absolute; left: 34%; top: 34%; width: 32%; height: 32%; border-radius: 50%; background: rgba(0,0,0,.14); pointer-events: none; }
+.sq.hint.cap::after { left: 3%; top: 3%; width: 94%; height: 94%; background: none; border: 6px solid rgba(0,0,0,.14); box-sizing: border-box; }
+
+.pieces { position: absolute; inset: 0; pointer-events: none; }
+.pc { background-size: cover; background-repeat: no-repeat; }
+.pieces .pc { position: absolute; left: 0; top: 0; width: 12.5%; height: 12.5%; will-change: transform; }
+.pieces .pc.moving { transition: transform .2s cubic-bezier(.25,.8,.35,1); }
+.pieces .pc.still { transition: none; }
+.pieces .pc.dragging { z-index: 5; transition: none; cursor: grabbing; filter: drop-shadow(0 8px 10px rgba(0,0,0,.35)); }
+.player .cap .pc.mini { display: inline-block; width: 18px; height: 18px; margin-right: -6px; vertical-align: middle; }
+.player .cap { display: flex; align-items: center; font-size: 13px; color: var(--muted); }
 
 .promo {
   position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; gap: 10px;
-  background: rgba(10,10,20,.6); border-radius: 12px;
+  background: rgba(10,10,20,.6); border-radius: 6px; z-index: 10;
 }
 .promo[hidden] { display: none; }
-.promo button { width: 22%; aspect-ratio: 1; border-radius: 16px; border: 0; background: var(--sq-light); cursor: pointer; display: grid; place-items: center; }
+.promo button { width: 22%; aspect-ratio: 1; border-radius: 14px; border: 0; background: #fff; cursor: pointer; padding: 6%; box-shadow: 0 8px 20px rgba(0,0,0,.4); }
+.promo button .pc { display: block; width: 100%; height: 100%; }
 
 .status { min-height: 26px; margin: 12px 0 4px; text-align: center; font-weight: 600; }
 .status.end { font: 600 20px "Space Grotesk", system-ui, sans-serif; color: var(--accent); }
