@@ -40,11 +40,21 @@ passe en mode édition pour en retirer.
 
 ## Échecs (`/__vt/chess`)
 
-Sans proxy. **Créer une partie** donne un code de 5 caractères (ou un lien) ; l'ami
-le tape dans **Rejoindre**. Chaque partie est un *Durable Object* Cloudflare (gratuit)
-qui vérifie les coups avec chess.js et les relaie en direct par WebSocket ; on peut
-recharger la page ou changer de réseau, la partie reprend. Revanche (couleurs
-inversées), abandon, et mode **à deux sur cet écran**.
+Sans proxy, tout passe par des *Durable Objects* Cloudflare (gratuits) :
+
+- **Parties classées** : choix de la cadence (1, 3, 3|2, 5, 10, 15|10 min),
+  **matchmaking** (adversaire de même cadence au plus proche en Elo), pendules
+  (elles démarrent après le premier coup de chaque joueur), nulle proposée /
+  acceptée, abandon, partie annulée si un joueur ne joue pas son premier coup
+  en 45 s, défaite au temps.
+- **Elo** : 1200 au départ, K = 40 pour les 30 premières parties puis 20 ;
+  profil avec pseudo et bilan, **classement** des 20 meilleurs.
+- **Entre amis** (non classé) : code de 5 caractères ou lien, avec ou sans pendule,
+  revanche. Et **à deux sur cet écran**.
+- Plateau façon chess.com : glisser-déposer, coups animés, sons.
+
+`ChessLobby` (un seul objet) garde profils, file d'attente et classement ;
+`ChessRoom` (un par partie) vérifie les coups avec chess.js et tient les pendules.
 
 ## Comment le proxy sert un site
 
