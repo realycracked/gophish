@@ -16,6 +16,15 @@ enabled = true
 name = "CHESS"
 class_name = "ChessRoom"
 
+[[durable_objects.bindings]]
+name = "LOBBY"
+class_name = "ChessLobby"
+
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["ChessRoom"]
+
+# Profils, Elo, matchmaking et classement.
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["ChessLobby"]

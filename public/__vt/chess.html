@@ -7,7 +7,7 @@
 <meta name="theme-color" content="#0d0e1a">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap">
 <link rel="stylesheet" href="/__vt/chess.css">
 <link rel="stylesheet" href="/__vt/chess-pieces.css">
 <script src="/__vt/theme.js"></script>
@@ -15,36 +15,70 @@
 <body>
 <div class="wrap">
   <header class="top">
-    <a class="back" href="/__vt/" aria-label="Accueil">
+    <a class="back" href="/__vt/" aria-label="Accueil" id="back">
       <svg width="22" height="22" viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/></svg>
     </a>
     <h1>Échecs</h1>
+    <span class="online" id="online" hidden></span>
     <span class="code-chip" id="code-chip" hidden></span>
   </header>
 
   <!-- Accueil des échecs -->
   <section class="lobby" id="lobby">
-    <button class="big primary" id="create" type="button">
-      <strong>Créer une partie</strong><span>Tu reçois un code à donner à ton ami</span>
-    </button>
-    <form class="join" id="join" autocomplete="off">
-      <input id="join-code" maxlength="5" placeholder="CODE" aria-label="Code de la partie" autocapitalize="characters" spellcheck="false">
-      <button type="submit">Rejoindre</button>
-    </form>
-    <div class="err" id="lobby-err"></div>
-    <button class="big" id="local" type="button">
-      <strong>À deux sur cet écran</strong><span>Chacun joue à son tour sur le même appareil</span>
-    </button>
+    <div class="me">
+      <div class="avatar" id="me-avatar">?</div>
+      <div class="me-info">
+        <button class="me-name" id="me-name" type="button" title="Changer de pseudo">…</button>
+        <div class="me-stats" id="me-stats"></div>
+      </div>
+      <div class="me-elo"><strong id="me-elo">—</strong><span>Elo</span></div>
+    </div>
+
+    <h2 class="sec">Partie classée</h2>
+    <div class="tcs" id="tcs">
+      <button type="button" data-tc="1+0"><b>1 min</b><span>Bullet</span></button>
+      <button type="button" data-tc="3+0"><b>3 min</b><span>Blitz</span></button>
+      <button type="button" data-tc="3+2"><b>3 | 2</b><span>Blitz</span></button>
+      <button type="button" data-tc="5+0"><b>5 min</b><span>Blitz</span></button>
+      <button type="button" data-tc="10+0"><b>10 min</b><span>Rapide</span></button>
+      <button type="button" data-tc="15+10"><b>15 | 10</b><span>Rapide</span></button>
+    </div>
+    <button class="play" id="play" type="button">Jouer</button>
+
+    <h2 class="sec">Entre amis <small>(non classé, même cadence ou sans pendule)</small></h2>
+    <div class="friends">
+      <button class="big" id="create" type="button"><strong>Défier un ami</strong><span>Tu reçois un code à lui donner</span></button>
+      <label class="nolimit"><input type="checkbox" id="nolimit"> Sans pendule</label>
+      <form class="join" id="join" autocomplete="off">
+        <input id="join-code" maxlength="5" placeholder="CODE" aria-label="Code de la partie" autocapitalize="characters" spellcheck="false">
+        <button type="submit">Rejoindre</button>
+      </form>
+      <div class="err" id="lobby-err"></div>
+      <button class="big" id="local" type="button"><strong>À deux sur cet écran</strong><span>Chacun joue à son tour sur le même appareil</span></button>
+    </div>
+
+    <h2 class="sec">Classement</h2>
+    <ol class="top20" id="top20"><li class="muted">Chargement…</li></ol>
   </section>
+
+  <!-- Recherche d'adversaire -->
+  <div class="seeking" id="seeking" hidden>
+    <div class="seek-card">
+      <div class="spinner"></div>
+      <div class="seek-title">Recherche d'un adversaire…</div>
+      <div class="seek-sub" id="seek-sub"></div>
+      <button type="button" id="seek-cancel">Annuler</button>
+    </div>
+  </div>
 
   <!-- Partie -->
   <section class="game" id="game" hidden>
-    <div class="player" id="p-top"><span class="dot"></span><span class="name"></span><span class="cap" id="cap-top"></span></div>
+    <div class="player" id="p-top"><span class="dot"></span><span class="who"><span class="name"></span><span class="elo"></span></span><span class="cap" id="cap-top"></span><span class="clock" id="clk-top"></span></div>
     <div class="board-wrap">
       <div class="board" id="board" role="grid" aria-label="Échiquier"></div>
       <div class="promo" id="promo" hidden></div>
     </div>
-    <div class="player" id="p-bot"><span class="dot"></span><span class="name"></span><span class="cap" id="cap-bot"></span></div>
+    <div class="player" id="p-bot"><span class="dot"></span><span class="who"><span class="name"></span><span class="elo"></span></span><span class="cap" id="cap-bot"></span><span class="clock" id="clk-bot"></span></div>
 
     <div class="status" id="status" role="status" aria-live="polite"></div>
 
@@ -55,13 +89,30 @@
     </div>
 
     <div class="actions">
-      <button type="button" id="rematch" hidden>Revanche</button>
-      <button type="button" id="undo" hidden>Annuler le coup</button>
+      <button type="button" id="draw-accept" hidden>Accepter la nulle</button>
+      <button type="button" id="draw-decline" class="ghost" hidden>Refuser</button>
+      <button type="button" id="draw" class="ghost">½ Nulle ?</button>
+      <button type="button" id="undo" class="ghost" hidden>Annuler le coup</button>
       <button type="button" id="resign" class="ghost">Abandonner</button>
       <button type="button" id="leave" class="ghost">Quitter</button>
     </div>
     <ol class="moves" id="moves"></ol>
   </section>
+
+  <!-- Fin de partie -->
+  <div class="endmodal" id="end" hidden>
+    <div class="end-card">
+      <div class="end-title" id="end-title"></div>
+      <div class="end-reason" id="end-reason"></div>
+      <div class="end-elo" id="end-elo"></div>
+      <div class="end-btns">
+        <button type="button" id="end-again">Nouvelle partie</button>
+        <button type="button" id="end-rematch">Revanche</button>
+        <button type="button" id="end-view" class="ghost">Voir l'échiquier</button>
+        <button type="button" id="end-lobby" class="ghost">Retour</button>
+      </div>
+    </div>
+  </div>
   <div class="toast" id="toast" role="status"></div>
 </div>
 <script type="module" src="/__vt/chess.js"></script>

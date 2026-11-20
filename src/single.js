@@ -2,7 +2,7 @@
 // embarquées, sans binding ASSETS. Sert à déployer en collant un seul fichier
 // dans l'éditeur Cloudflare ("Edit code"). Généré par scripts/build-single.mjs.
 import worker from "./index.js";
-export { ChessRoom } from "./chess.js";
+export { ChessRoom, ChessLobby } from "./chess.js";
 import { ASSETS_MAP } from "./assets.generated.js";
 
 const inlineAssets = {
