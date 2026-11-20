@@ -26,6 +26,16 @@ function toast(msg) {
   clearTimeout(toastTimer); toastTimer = setTimeout(() => t.classList.remove("show"), 1800);
 }
 
+// Avatar : initiale sur une couleur tirée du pseudo.
+const AV_COLORS = ["#5d7f3a", "#7c5cbf", "#c0663a", "#2f7fb5", "#b5476b", "#3a8f7f", "#8a6d3b", "#5b6170"];
+function paintAvatar(el, name) {
+  if (!el) return;
+  const n = String(name || "?").replace(/\s*\(toi\)$/, "");
+  let h = 0; for (const ch of n) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  el.textContent = n.charAt(0).toUpperCase();
+  el.style.background = AV_COLORS[h % AV_COLORS.length];
+}
+
 // ---------- État ----------
 let mode = null;          // "online" | "local"
 let code = null;
@@ -39,7 +49,28 @@ let rated = false, tcId = null, drawOffer = null, ratingChange = null;
 let clock = null;         // { w, b, running, at } (at = heure locale de réception)
 let abortAt = null;
 let endShown = false;
-let game = new Chess();
+let game = new Chess();    // position réelle (dernier coup)
+let pos = game;           // position affichée (différente en revue)
+let viewIdx = null;       // null = direct ; sinon nombre de coups affichés
+let flipped = false;
+
+// ---------- Réglages : thème du plateau, sons, coordonnées, coups possibles ----------
+const THEMES = {
+  green: ["#ebecd0", "#739552", "#f5f682", "#b9ca43", "Vert"],
+  wood: ["#f0d9b5", "#b58863", "#f6eb72", "#dcc34b", "Bois"],
+  blue: ["#dee3e6", "#8ca2ad", "#c9dd8b", "#97b16a", "Bleu"],
+  indigo: ["#e8e6f7", "#8a83c8", "#f3e9a6", "#c9b85f", "Indigo"],
+};
+let prefs = { theme: "green", sound: true, coords: true, hints: true };
+try { prefs = { ...prefs, ...JSON.parse(read("vt_chess_prefs") || "{}") }; } catch {}
+function applyPrefs() {
+  const t = THEMES[prefs.theme] || THEMES.green, r = document.documentElement.style;
+  r.setProperty("--sq-light", t[0]); r.setProperty("--sq-dark", t[1]); r.setProperty("--sq-hl-l", t[2]); r.setProperty("--sq-hl-d", t[3]);
+  document.body.classList.toggle("no-coords", !prefs.coords);
+  document.body.classList.toggle("no-hints", !prefs.hints);
+  store("vt_chess_prefs", JSON.stringify(prefs));
+}
+applyPrefs();
 let selected = null;
 let profile = null;
 let tcSel = read("vt_chess_tc") || "10+0";
@@ -53,7 +84,10 @@ let shownLen = -1;        // nombre de coups affichés au dernier rendu
 let skipAnim = false;     // coup joué au glisser : la pièce est déjà à sa place
 let drag = null;          // { from, el, x0, y0, moved }
 
-function orientation() { return mode === "online" && me === "b" ? "b" : "w"; }
+function orientation() {
+  const base = mode === "online" && me === "b" ? "b" : "w";
+  return flipped ? (base === "w" ? "b" : "w") : base;
+}
 function sqToXY(sq) {
   const f = FILES.indexOf(sq[0]), r = +sq[1];
   return orientation() === "b" ? [7 - f, r - 1] : [f, 8 - r];
@@ -67,6 +101,7 @@ function place(el, sq) { const [x, y] = sqToXY(sq); el.style.transform = `transl
 // ---------- Sons (synthétisés, aucun fichier) ----------
 let actx = null;
 function sound(kind) {
+  if (!prefs.sound) return;
   try {
     actx = actx || new (window.AudioContext || window.webkitAudioContext)();
     const t = actx.currentTime;
@@ -90,17 +125,22 @@ function sound(kind) {
 function render() {
   game = new Chess();
   for (const san of moves) { try { game.move(san); } catch { break; } }
-  const hist = game.history({ verbose: true });
+  if (viewIdx != null && viewIdx >= moves.length) viewIdx = null;
+  const n = viewIdx == null ? moves.length : viewIdx;
+  if (n === moves.length) pos = game;
+  else { pos = new Chess(); for (const san of moves.slice(0, n)) pos.move(san); }
+  const hist = pos.history({ verbose: true });
   const last = hist[hist.length - 1];
-  const animate = shownLen >= 0 && moves.length === shownLen + 1 && last && !skipAnim;
-  const newMove = shownLen >= 0 && moves.length === shownLen + 1 && last;
-  shownLen = moves.length;
+  const animate = shownLen >= 0 && n === shownLen + 1 && last && !skipAnim;
+  const newMove = shownLen >= 0 && n === shownLen + 1 && last;
+  shownLen = n;
   skipAnim = false;
+  if (viewIdx != null) selected = null;
 
   const hints = new Map();
   if (selected) for (const m of game.moves({ square: selected, verbose: true })) hints.set(m.to, m);
   let checkSq = null;
-  if (game.inCheck()) for (const row of game.board()) for (const c of row) if (c && c.type === "k" && c.color === game.turn()) checkSq = c.square;
+  if (pos.inCheck()) for (const row of pos.board()) for (const c of row) if (c && c.type === "k" && c.color === pos.turn()) checkSq = c.square;
 
   // Cases
   board.innerHTML = "";
@@ -114,7 +154,7 @@ function render() {
     if (last && (last.from === sq || last.to === sq)) el.classList.add("last");
     if (sq === selected) el.classList.add("sel");
     if (sq === checkSq) el.classList.add("check");
-    if (hints.has(sq)) el.classList.add("hint", ...(game.get(sq) || hints.get(sq).flags.includes("e") ? ["cap"] : []));
+    if (hints.has(sq)) el.classList.add("hint", ...(pos.get(sq) || hints.get(sq).flags.includes("e") ? ["cap"] : []));
     if (x === 0) el.insertAdjacentHTML("beforeend", `<span class="coord r">${sq[1]}</span>`);
     if (y === 7) el.insertAdjacentHTML("beforeend", `<span class="coord f">${sq[0]}</span>`);
     sqLayer.appendChild(el);
@@ -124,7 +164,7 @@ function render() {
   // Pièces
   const pcLayer = document.createElement("div"); pcLayer.className = "pieces";
   const moving = [];
-  for (const row of game.board()) for (const c of row) {
+  for (const row of pos.board()) for (const c of row) {
     if (!c) continue;
     const el = document.createElement("div");
     el.className = "pc " + c.color + c.type;
@@ -145,7 +185,7 @@ function render() {
     void pcLayer.offsetWidth; // applique la position de départ avant l'animation
     for (const [el, sq] of moving) { el.classList.remove("still"); el.classList.add("moving"); place(el, sq); }
   }
-  if (newMove) sound(game.inCheck() ? "check" : last.captured ? "capture" : "move");
+  if (newMove) sound(pos.inCheck() ? "check" : last.captured ? "capture" : "move");
   renderSide();
 }
 
@@ -153,7 +193,7 @@ function captured(color) {
   // Pièces de `color` prises par l'adversaire.
   const start = { p: 8, n: 2, b: 2, r: 2, q: 1 };
   const now = { p: 0, n: 0, b: 0, r: 0, q: 0 };
-  for (const row of game.board()) for (const c of row) if (c && c.color === color && c.type !== "k") now[c.type]++;
+  for (const row of pos.board()) for (const c of row) if (c && c.color === color && c.type !== "k") now[c.type]++;
   const list = []; let pts = 0;
   for (const t of ["q", "r", "b", "n", "p"]) {
     const n = Math.max(0, start[t] - now[t]);
@@ -174,6 +214,7 @@ function renderSide() {
   };
   const fill = (el, c, capEl) => {
     const l = label(c);
+    paintAvatar(el.querySelector("[data-av]"), l.name);
     el.querySelector(".name").textContent = l.name;
     el.querySelector(".elo").textContent = l.elo;
     el.classList.toggle("on", mode === "local" || !!players[c]);
@@ -181,7 +222,7 @@ function renderSide() {
     const took = captured(c === "w" ? "b" : "w"), lost = captured(c);
     capEl.innerHTML = "";
     for (const k of took.list) { const i = document.createElement("span"); i.className = "pc mini " + k; capEl.appendChild(i); }
-    if (took.pts > lost.pts) capEl.appendChild(document.createTextNode(" +" + (took.pts - lost.pts)));
+    if (took.pts > lost.pts) { const a = document.createElement("span"); a.className = "adv"; a.textContent = "+" + (took.pts - lost.pts); capEl.appendChild(a); }
   };
   fill($("p-top"), top, $("cap-top"));
   fill($("p-bot"), bottom, $("cap-bot"));
@@ -209,22 +250,48 @@ function renderSide() {
 
   const playing = mode === "online" && me !== "s" && players.bJoined && !result;
   $("share").hidden = !(mode === "online" && !rated && !players.bJoined && me === "w");
-  $("resign").hidden = !(playing || (mode === "local" && !result));
-  $("resign").textContent = rated && moves.length < 2 ? "Annuler la partie" : "Abandonner";
-  $("draw").hidden = !(playing && moves.length >= 2 && !drawOffer);
-  $("draw-accept").hidden = $("draw-decline").hidden = !(playing && drawOffer && drawOffer !== me);
-  $("undo").hidden = !(mode === "local" && moves.length && !result);
+  const canResign = playing || (mode === "local" && !result);
+  $("resign").disabled = !canResign;
+  $("resign-lbl").textContent = rated && moves.length < 2 && !result ? "Annuler" : "Abandon";
+  $("draw").hidden = mode === "local";
+  $("draw").disabled = !(playing && moves.length >= 2 && !drawOffer);
+  $("undo").hidden = !(mode === "local");
+  $("undo").disabled = !(moves.length && !result);
+  const n = viewIdx == null ? moves.length : viewIdx;
+  $("prev").disabled = n === 0;
+  $("next").disabled = viewIdx == null;
 
-  // Liste des coups
+  // Bandeau sur le plateau : nulle proposée, ou revue d'un ancien coup.
+  const ban = $("banner"); ban.innerHTML = ""; ban.hidden = true;
+  if (playing && drawOffer && drawOffer !== me) {
+    ban.innerHTML = '<span>Nulle proposée</span><button type="button" class="yes">Accepter</button><button type="button">Refuser</button>';
+    ban.children[1].onclick = () => send({ t: "draw" });
+    ban.children[2].onclick = () => send({ t: "decline" });
+    ban.hidden = false;
+  } else if (viewIdx != null) {
+    ban.innerHTML = '<span></span><button type="button" class="yes">Retour au direct</button>';
+    ban.firstChild.textContent = "Coup " + Math.ceil(viewIdx / 2 || 0) + (viewIdx ? (viewIdx % 2 ? " (blancs)" : " (noirs)") : " · départ");
+    ban.children[1].onclick = () => goLive();
+    ban.hidden = false;
+  }
+
+  // Liste des coups (cliquables pour revoir la position)
   const ol = $("moves"); ol.innerHTML = "";
+  let cur = null;
   for (let i = 0; i < moves.length; i += 2) {
     const li = document.createElement("li");
-    li.innerHTML = "<b></b><span></span>";
-    li.firstChild.textContent = moves[i];
-    li.lastChild.textContent = moves[i + 1] || "";
+    const num = document.createElement("span"); num.className = "n"; num.textContent = i / 2 + 1 + ".";
+    li.appendChild(num);
+    for (const j of [i, i + 1]) {
+      if (j >= moves.length) { li.appendChild(document.createElement("span")); continue; }
+      const b = document.createElement("button"); b.type = "button"; b.textContent = moves[j];
+      if (j + 1 === n) { b.className = "cur"; cur = b; }
+      b.onclick = () => { viewIdx = j + 1 === moves.length ? null : j + 1; render(); };
+      li.appendChild(b);
+    }
     ol.appendChild(li);
   }
-  ol.scrollTop = ol.scrollHeight;
+  if (cur) cur.scrollIntoView({ block: "nearest", inline: "center" });
 
   if (result && !endShown) { endShown = true; setTimeout(showEnd, 600); }
   if (!result) { endShown = false; $("end").hidden = true; }
@@ -271,6 +338,18 @@ setInterval(() => { if (mode === "online" && clock && clock.running && !result) 
 function showEnd() {
   if (!result) return;
   $("end-title").textContent = resultTitle();
+  const won = result.winner && (mode === "local" || result.winner === me);
+  $("end-icon").innerHTML = result.aborted || !result.winner ? '<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="#a8a49d"/><text x="32" y="42" text-anchor="middle" font-size="28" font-weight="700" fill="#1f1d1a" font-family="sans-serif">½</text></svg>' : won || me === "s" ? '<svg viewBox="0 0 64 64"><path d="M20 8h24v14a12 12 0 0 1-24 0z" fill="#f5c542"/><path d="M20 12H10a10 10 0 0 0 12 12M44 12h10a10 10 0 0 1-12 12" fill="none" stroke="#f5c542" stroke-width="4"/><rect x="28" y="33" width="8" height="10" fill="#d9a520"/><rect x="20" y="43" width="24" height="7" rx="2" fill="#d9a520"/></svg>' : '<svg viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="#e5484d"/><path d="M23 23l18 18M41 23L23 41" stroke="#fff" stroke-width="6" stroke-linecap="round"/></svg>';
+  const vs = $("end-vs"); vs.innerHTML = "";
+  for (const c of ["w", "b"]) {
+    const side = document.createElement("div"); side.className = "side" + (result.winner === c ? " win" : "");
+    const av = document.createElement("div"); av.className = "avatar";
+    const nm = document.createElement("div"); nm.className = "nm";
+    const label = mode === "local" ? (c === "w" ? "Blancs" : "Noirs") : (names[c] && names[c].name) || (c === "w" ? "Blancs" : "Noirs");
+    paintAvatar(av, label); nm.textContent = label;
+    side.append(av, nm); vs.appendChild(side);
+    if (c === "w") { const v = document.createElement("div"); v.className = "vs"; v.textContent = "vs"; vs.appendChild(v); }
+  }
   $("end-reason").textContent = result.aborted ? "Personne n'a joué son premier coup." : result.reason;
   const e = $("end-elo"); e.innerHTML = "";
   if (rated && ratingChange && ratingChange[me]) {
@@ -282,17 +361,18 @@ function showEnd() {
   $("end-rematch").hidden = !(mode === "local" || (mode === "online" && !rated && me !== "s"));
   $("end").hidden = false;
 }
-$("end-view").addEventListener("click", () => { $("end").hidden = true; });
+$("end-view").addEventListener("click", () => { $("end").hidden = true; viewIdx = moves.length ? 0 : null; shownLen = -1; render(); toast("Utilise ‹ › pour rejouer les coups"); });
 $("end-lobby").addEventListener("click", () => { $("end").hidden = true; leave(); });
 $("end-again").addEventListener("click", () => { const t = tcId; $("end").hidden = true; leave(); seek(t); });
 $("end-rematch").addEventListener("click", () => {
   $("end").hidden = true;
-  if (mode === "local") { moves = []; result = null; shownLen = -1; saveLocal(); render(); }
+  if (mode === "local") { moves = []; result = null; shownLen = -1; viewIdx = null; saveLocal(); render(); }
   else send({ t: "rematch" });
 });
 
 // ---------- Jouer ----------
 function canMove() {
+  if (viewIdx != null) return false;
   if (result) return false;
   if (mode === "local") return true;
   return me !== "s" && players.bJoined && game.turn() === me;
@@ -472,12 +552,14 @@ function startLocal() {
 // ---------- Écrans ----------
 function showGame() {
   $("lobby").hidden = true; $("game").hidden = false; $("seeking").hidden = true; $("online").hidden = true;
+  $("title").textContent = mode === "local" ? "À deux" : rated ? "Classée · " + (TC_LABEL[tcId] || "") : "Entre amis";
 }
 function leave() {
   closedForGood = true;
   if (ws) try { ws.close(); } catch {}
-  ws = null; mode = null; code = null; moves = []; result = null; selected = null; clock = null;
+  ws = null; mode = null; code = null; moves = []; result = null; selected = null; clock = null; viewIdx = null; flipped = false;
   history.replaceState(null, "", "/__vt/chess");
+  $("title").textContent = "Échecs";
   $("code-chip").hidden = true; $("end").hidden = true;
   $("game").hidden = true; $("lobby").hidden = false; $("online").hidden = false;
   lobbySend({ t: "top" });
@@ -512,7 +594,7 @@ function connectLobby() {
 function renderProfile() {
   if (!profile) return;
   $("me-name").textContent = profile.name + " ✎";
-  $("me-avatar").textContent = profile.name.charAt(0).toUpperCase();
+  paintAvatar($("me-avatar"), profile.name);
   $("me-elo").textContent = profile.rating;
   $("me-stats").textContent = profile.games
     ? `${profile.games} partie${profile.games > 1 ? "s" : ""} · ${profile.w} V · ${profile.d} N · ${profile.l} D`
@@ -524,11 +606,12 @@ function renderTop(list) {
   list.forEach((p, i) => {
     const li = document.createElement("li");
     if (p.me) li.className = "me-row";
-    li.innerHTML = '<span class="rk"></span><span class="nm"></span><span class="gm"></span><span class="rt"></span>';
+    li.innerHTML = '<span class="rk"></span><span class="avatar"></span><span class="nm"></span><span class="gm"></span><span class="rt"></span>';
     li.children[0].textContent = i + 1;
-    li.children[1].textContent = p.name;
-    li.children[2].textContent = p.games + " p.";
-    li.children[3].textContent = p.rating;
+    paintAvatar(li.children[1], p.name);
+    li.children[2].textContent = p.name;
+    li.children[3].textContent = p.games + " p.";
+    li.children[4].textContent = p.rating;
     ol.appendChild(li);
   });
 }
@@ -539,15 +622,26 @@ $("me-name").addEventListener("click", () => {
 
 // Cadence
 function markTc() {
-  document.querySelectorAll("#tcs button").forEach((b) => b.classList.toggle("on", b.dataset.tc === tcSel));
+  document.querySelectorAll(".tcs button").forEach((b) => b.classList.toggle("on", b.dataset.tc === tcSel));
   $("play").textContent = "Jouer · " + TC_LABEL[tcSel];
+  $("friend-tc").textContent = $("nolimit").checked ? "" : "Cadence : " + TC_LABEL[tcSel];
 }
-document.querySelectorAll("#tcs button").forEach((b) => b.addEventListener("click", () => { tcSel = b.dataset.tc; store("vt_chess_tc", tcSel); markTc(); }));
+$("nolimit").addEventListener("change", markTc);
+document.querySelectorAll(".tcs button").forEach((b) => b.addEventListener("click", () => { tcSel = b.dataset.tc; store("vt_chess_tc", tcSel); markTc(); }));
 markTc();
 
+let seekTimer = null;
 function seek(tc) {
   if (!tc) return;
   seekingTc = tc;
+  const t0 = Date.now();
+  clearInterval(seekTimer);
+  $("seek-time").textContent = "0:00";
+  seekTimer = setInterval(() => {
+    if (!seekingTc) return clearInterval(seekTimer);
+    const s = Math.floor((Date.now() - t0) / 1000);
+    $("seek-time").textContent = Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0");
+  }, 500);
   $("seek-sub").textContent = TC_LABEL[tc];
   $("seeking").hidden = false;
   lobbySend({ t: "seek", tc });
@@ -574,7 +668,8 @@ $("join-code").addEventListener("input", (e) => { e.target.value = e.target.valu
 $("local").addEventListener("click", startLocal);
 
 // Boutons de partie
-$("leave").addEventListener("click", () => {
+$("back").addEventListener("click", () => {
+  if (!mode) { location.href = "/__vt/"; return; }
   if (mode === "online" && !result && me !== "s" && players.bJoined && moves.length >= 2 && !confirm("Quitter ? Ta pendule continue de tourner.")) return;
   leave();
 });
@@ -585,9 +680,47 @@ $("resign").addEventListener("click", () => {
   else send({ t: "resign" });
 });
 $("draw").addEventListener("click", () => { send({ t: "draw" }); toast("Nulle proposée"); });
-$("draw-accept").addEventListener("click", () => send({ t: "draw" }));
-$("draw-decline").addEventListener("click", () => send({ t: "decline" }));
-$("undo").addEventListener("click", () => { moves.pop(); result = null; shownLen = -1; saveLocal(); render(); });
+$("undo").addEventListener("click", () => { moves.pop(); result = null; shownLen = -1; viewIdx = null; saveLocal(); render(); });
+
+// Revue des coups, retournement du plateau
+function goLive() { viewIdx = null; render(); }
+$("prev").addEventListener("click", () => { const n = viewIdx == null ? moves.length : viewIdx; if (n > 0) { viewIdx = n - 1; render(); } });
+$("next").addEventListener("click", () => { if (viewIdx == null) return; viewIdx = viewIdx + 1 >= moves.length ? null : viewIdx + 1; render(); });
+$("flip").addEventListener("click", () => { flipped = !flipped; shownLen = -1; render(); });
+document.addEventListener("keydown", (e) => {
+  if ($("game").hidden || e.target.tagName === "INPUT") return;
+  if (e.key === "ArrowLeft") $("prev").click();
+  else if (e.key === "ArrowRight") $("next").click();
+  else if (e.key === "f") $("flip").click();
+});
+
+// Onglets de l'accueil
+function showTab(t) {
+  document.querySelectorAll("#tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === t));
+  document.querySelectorAll(".panel").forEach((p) => { p.hidden = p.dataset.panel !== t; });
+  if (t === "top") lobbySend({ t: "top" });
+  store("vt_chess_tab", t);
+}
+document.querySelectorAll("#tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+showTab(read("vt_chess_tab") === "friends" ? "friends" : "play");
+
+// Réglages
+function renderSettings() {
+  const box = $("themes"); box.innerHTML = "";
+  for (const [k, t] of Object.entries(THEMES)) {
+    const b = document.createElement("button"); b.type = "button"; b.className = k === prefs.theme ? "on" : "";
+    b.innerHTML = `<div class="mini-board"><i style="background:${t[0]}"></i><i style="background:${t[1]}"></i><i style="background:${t[1]}"></i><i style="background:${t[0]}"></i></div><span>${t[4]}</span>`;
+    b.onclick = () => { prefs.theme = k; applyPrefs(); renderSettings(); };
+    box.appendChild(b);
+  }
+  $("opt-sound").checked = prefs.sound; $("opt-coords").checked = prefs.coords; $("opt-hints").checked = prefs.hints;
+}
+for (const [id, key] of [["opt-sound", "sound"], ["opt-coords", "coords"], ["opt-hints", "hints"]]) {
+  $(id).addEventListener("change", (e) => { prefs[key] = e.target.checked; applyPrefs(); if (key === "sound" && prefs.sound) sound("move"); });
+}
+$("settings-btn").addEventListener("click", () => { renderSettings(); $("settings").hidden = false; });
+$("settings-close").addEventListener("click", () => { $("settings").hidden = true; });
+$("settings").addEventListener("click", (e) => { if (e.target === $("settings")) $("settings").hidden = true; });
 
 async function shareLink() {
   const link = location.origin + "/__vt/chess?c=" + code;
